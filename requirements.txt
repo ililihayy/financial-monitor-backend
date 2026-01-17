@@ -1,0 +1,23 @@
+# Django and Django REST Framework
+Django==5.2.7
+djangorestframework==3.16.1
+djangorestframework-simplejwt==5.3.1
+
+# Database
+psycopg2-binary==2.9.11
+dj-database-url==3.0.1
+
+# Environment variables
+django-environ==0.11.2
+python-dotenv==1.1.1
+
+# CORS
+django-cors-headers==4.6.0
+
+# Machine Learning and Data Science
+scikit-learn==1.5.2
+pandas==2.2.2
+numpy==2.1.1
+
+# Security and Utilities
+Pillow==11.0.0
