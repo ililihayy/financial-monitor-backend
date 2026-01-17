@@ -122,3 +122,72 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
     def __str__(self):
         """String representation of the user."""
         return self.email
+
+
+class PasswordResetOTP(models.Model):
+    """
+    Model for storing password reset OTP codes.
+    
+    Stores 6-digit codes sent via email for password reset functionality.
+    Codes expire after 10 minutes and are invalidated after successful use.
+    """
+    
+    email = models.EmailField(
+        verbose_name='Email Address',
+        help_text='Email address of the user requesting password reset.'
+    )
+    code = models.CharField(
+        max_length=6,
+        verbose_name='OTP Code',
+        help_text='6-digit OTP code for password reset.'
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name='Created At',
+        help_text='Timestamp when the OTP code was generated.'
+    )
+    expires_at = models.DateTimeField(
+        verbose_name='Expires At',
+        help_text='Timestamp when the OTP code expires (10 minutes after creation).'
+    )
+    used = models.BooleanField(
+        default=False,
+        verbose_name='Used',
+        help_text='Whether this OTP code has been used for password reset.'
+    )
+    used_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name='Used At',
+        help_text='Timestamp when the OTP code was used.'
+    )
+
+    class Meta:
+        verbose_name = 'Password Reset OTP'
+        verbose_name_plural = 'Password Reset OTPs'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['email', 'code']),
+            models.Index(fields=['expires_at']),
+        ]
+
+    def __str__(self):
+        """String representation of the OTP."""
+        return f"OTP for {self.email} - {self.code}"
+
+    def is_valid(self):
+        """
+        Check if the OTP code is still valid (not used and not expired).
+        
+        Returns:
+            bool: True if the code is valid, False otherwise
+        """
+        from django.utils import timezone
+        return not self.used and timezone.now() < self.expires_at
+
+    def mark_as_used(self):
+        """Mark this OTP code as used."""
+        from django.utils import timezone
+        self.used = True
+        self.used_at = timezone.now()
+        self.save(update_fields=['used', 'used_at'])

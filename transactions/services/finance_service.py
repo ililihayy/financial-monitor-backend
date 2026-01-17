@@ -237,3 +237,45 @@ class FinanceService:
             'labels': labels,
             'values': values,
         }
+
+    @staticmethod
+    def get_dashboard_summary(user, month: int, year: int) -> Dict:
+        current_totals = FinanceService.get_dashboard_totals(user, year, month)
+        
+        if month == 1:
+            prev_month, prev_year = 12, year - 1
+        else:
+            prev_month, prev_year = month - 1, year
+
+        prev_totals = FinanceService.get_dashboard_totals(user, prev_year, prev_month)
+
+        def calculate_percent_change(current, previous):
+            curr_f = float(current)
+            prev_f = float(previous)
+            if prev_f == 0:
+                return 100.0 if curr_f > 0 else 0.0
+            return round(((curr_f - prev_f) / prev_f) * 100, 2)
+
+        return {
+            'total_income': current_totals['total_income'],
+            'total_spent': current_totals['total_expenses'],
+            'current_balance': current_totals['balance'],
+            'income_percent_change': calculate_percent_change(current_totals['total_income'], prev_totals['total_income']),
+            'spent_percent_change': calculate_percent_change(current_totals['total_expenses'], prev_totals['total_expenses']),
+            'balance_percent_change': calculate_percent_change(current_totals['balance'], prev_totals['balance']),
+            'year': year,
+            'month': month
+        }
+
+    @staticmethod
+    def get_category_distribution(user, month: int, year: int) -> List[Dict]:
+        expenses_by_category = FinanceService.aggregate_expenses_by_category(user, year, month)
+        
+        return [
+            {
+                'name': item['category_name'],
+                'value': float(item['total_amount'])
+            }
+            for item in expenses_by_category
+        ]
+    

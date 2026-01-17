@@ -160,3 +160,112 @@ class LoginSerializer(serializers.Serializer):
             )
 
         return attrs
+
+
+class GoogleAuthSerializer(serializers.Serializer):
+    """
+    Serializer for Google authentication with ID token.
+    
+    Accepts a Google ID token from the frontend and validates it.
+    """
+    
+    credential = serializers.CharField(
+        required=True,
+        help_text='Google ID token (credential) from Google One Tap or Google Login.'
+    )
+
+    def validate_credential(self, value):
+        """
+        Validate Google ID token.
+        
+        Args:
+            value: Google ID token string
+            
+        Returns:
+            str: Validated token string
+            
+        Raises:
+            serializers.ValidationError: If token is invalid or empty
+        """
+        if not value or not value.strip():
+            raise serializers.ValidationError("Google credential is required.")
+        return value.strip()
+
+
+class PasswordResetRequestSerializer(serializers.Serializer):
+    """
+    Serializer for password reset request.
+    
+    Accepts email and generates a 6-digit OTP code.
+    """
+    
+    email = serializers.EmailField(
+        required=True,
+        help_text='Email address of the user requesting password reset.'
+    )
+
+    def validate_email(self, value):
+        """
+        Validate email format and existence.
+        
+        Args:
+            value: Email address to validate
+            
+        Returns:
+            str: Validated email address
+            
+        Raises:
+            serializers.ValidationError: If email is invalid
+        """
+        if not value:
+            raise serializers.ValidationError("Email is required.")
+        return value.lower().strip()
+
+
+class PasswordResetConfirmSerializer(serializers.Serializer):
+    """
+    Serializer for password reset confirmation.
+    
+    Accepts email, OTP code, and new password.
+    """
+    
+    email = serializers.EmailField(
+        required=True,
+        help_text='Email address of the user.'
+    )
+    code = serializers.CharField(
+        required=True,
+        max_length=6,
+        min_length=6,
+        help_text='6-digit OTP code sent via email.'
+    )
+    new_password = serializers.CharField(
+        required=True,
+        write_only=True,
+        validators=[validate_password],
+        style={'input_type': 'password'},
+        help_text='New password that meets Django password validation requirements.'
+    )
+
+    def validate_email(self, value):
+        """Validate email format."""
+        if not value:
+            raise serializers.ValidationError("Email is required.")
+        return value.lower().strip()
+
+    def validate_code(self, value):
+        """
+        Validate OTP code format (must be 6 digits).
+        
+        Args:
+            value: OTP code to validate
+            
+        Returns:
+            str: Validated code
+            
+        Raises:
+            serializers.ValidationError: If code format is invalid
+        """
+        if not value or not value.isdigit() or len(value) != 6:
+            raise serializers.ValidationError("OTP code must be exactly 6 digits.")
+        return value

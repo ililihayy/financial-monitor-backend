@@ -43,6 +43,32 @@ class CategoryListCreateView(generics.ListCreateAPIView):
         serializer.save(user=self.request.user)
 
 
+class CategoryDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """
+    Retrieve, update, or delete a category.
+    
+    GET /api/categories/{id}/ - Get category details
+    PUT /api/categories/{id}/ - Update category
+    PATCH /api/categories/{id}/ - Partial update category
+    DELETE /api/categories/{id}/ - Delete category
+    """
+    permission_classes = [IsAuthenticated]
+    serializer_class = CategorySerializer
+
+    def get_queryset(self):
+        """Only return user's own categories (cannot delete system categories)."""
+        user = self.request.user
+        # Only allow access to user's own categories, not system categories
+        return Category.objects.filter(user=user)
+
+    def perform_destroy(self, instance):
+        """Prevent deletion of system categories."""
+        if instance.user is None:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("Cannot delete system categories.")
+        instance.delete()
+
+
 # ========== Transaction Views ==========
 
 class TransactionListCreateView(generics.ListCreateAPIView):
@@ -109,61 +135,45 @@ class TransactionDetailView(generics.RetrieveUpdateDestroyAPIView):
 @permission_classes([IsAuthenticated])
 def dashboard_view(request):
     """
-    Get dashboard data: totals, balance, and pie chart data.
+    Get dashboard data: summary with totals, balance, and category distribution.
     
     GET /api/analytics/dashboard/?year=2024&month=3
     
     Returns: {
-        "totals": {
-            "total_income": 5000.00,
-            "total_expenses": 3500.00,
-            "balance": 1500.00,
-            "year": 2024,
-            "month": 3
-        },
-        "expenses_by_category": [
-            {
-                "category_id": 1,
-                "category_name": "Food",
-                "total_amount": 500.00,
-                "transaction_count": 15
-            },
-            ...
+        "total_income": 5000.00,
+        "total_spent": 3500.00,
+        "current_balance": 1500.00,
+        "percent_change": 5.5,
+        "category_distribution": [
+            {"category": "Food", "amount": 450.00},
+            {"category": "Transport", "amount": 300.00}
         ],
-        "pie_chart_data": {
-            "labels": ["Food", "Transport"],
-            "values": [500.00, 300.00]
-        }
+        "year": 2024,
+        "month": 3
     }
     """
     # Get optional filters
     year = request.query_params.get('year', None)
     month = request.query_params.get('month', None)
     
-    # Convert to integers if provided
-    year = int(year) if year else None
-    month = int(month) if month else None
+    # Use current date if not provided
+    from datetime import date
+    today = date.today()
+    target_year = int(year) if year else today.year
+    target_month = int(month) if month else today.month
     
-    # Get totals
-    totals = FinanceService.get_dashboard_totals(request.user, year, month)
+    # Get dashboard summary (includes totals and percent change)
+    summary = FinanceService.get_dashboard_summary(request.user, target_month, target_year)
     
-    # Get expenses by category
-    target_year = totals['year']
-    target_month = totals['month']
-    expenses_by_category = FinanceService.aggregate_expenses_by_category(
-        request.user, target_year, target_month, category_type='Expense'
+    # Get category distribution for Donut Chart
+    category_distribution = FinanceService.get_category_distribution(
+        request.user, target_month, target_year
     )
     
-    # Get pie chart data
-    pie_chart_data = FinanceService.get_pie_chart_data(
-        request.user, target_year, target_month
-    )
+    # Add category distribution to response
+    summary['category_distribution'] = category_distribution
     
-    return Response({
-        'totals': totals,
-        'expenses_by_category': expenses_by_category,
-        'pie_chart_data': pie_chart_data,
-    }, status=status.HTTP_200_OK)
+    return Response(summary, status=status.HTTP_200_OK)
 
 
 @api_view(['GET'])
@@ -229,6 +239,191 @@ def balance_view(request):
     
     return Response({
         'balance': balance,
+        'year': target_year,
+        'month': target_month,
+    }, status=status.HTTP_200_OK)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def trend_view(request):
+    """
+    Get monthly trend data for analytics visualization.
+    
+    GET /api/analytics/trend/?months_back=12
+    
+    Returns: [
+        {
+            "month": "2024-01",
+            "income": 5000.00,
+            "expenses": 3500.00,
+            "balance": 1500.00
+        },
+        ...
+    ]
+    """
+    from transactions.models import Transaction, Category
+    from django.db.models import Sum, Q
+    from django.db.models.functions import TruncMonth
+    from django.db.models import DecimalField
+    from decimal import Decimal
+    from datetime import date, timedelta
+    
+    # Get optional parameter
+    months_back = request.query_params.get('months_back', 12)
+    months_back = int(months_back) if months_back else 12
+    months_back = max(6, min(months_back, 24))  # Between 6 and 24 months
+    
+    # Calculate date range
+    end_date = date.today()
+    start_date = end_date - timedelta(days=months_back * 31)
+    
+    # Get monthly income
+    monthly_income = Transaction.objects.filter(
+        user=request.user,
+        category__type='Income',
+        date__gte=start_date,
+        date__lte=end_date
+    ).annotate(
+        month=TruncMonth('date')
+    ).values('month').annotate(
+        total=Sum('amount', output_field=DecimalField())
+    ).order_by('month')
+    
+    # Get monthly expenses
+    monthly_expenses = Transaction.objects.filter(
+        user=request.user,
+        category__type='Expense',
+        date__gte=start_date,
+        date__lte=end_date
+    ).annotate(
+        month=TruncMonth('date')
+    ).values('month').annotate(
+        total=Sum('amount', output_field=DecimalField())
+    ).order_by('month')
+    
+    # Create dictionaries for quick lookup
+    income_dict = {item['month']: float(item['total'] or Decimal('0.00')) for item in monthly_income}
+    expenses_dict = {item['month']: float(item['total'] or Decimal('0.00')) for item in monthly_expenses}
+    
+    # Get all unique months
+    all_months = sorted(set(list(income_dict.keys()) + list(expenses_dict.keys())))
+    
+    # Build response
+    result = []
+    for month in all_months:
+        income = income_dict.get(month, 0.0)
+        expenses = expenses_dict.get(month, 0.0)
+        result.append({
+            'month': month.strftime('%Y-%m'),
+            'income': income,
+            'expenses': expenses,
+            'balance': income - expenses
+        })
+    
+    return Response(result, status=status.HTTP_200_OK)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def ai_insights_view(request):
+    """
+    Get AI-generated insights and tips based on transaction analysis.
+    
+    GET /api/analytics/insights/?year=2024&month=3
+    
+    Returns: {
+        "insights": [
+            "Rent is your biggest expense this month.",
+            "You spent 20% more on Food compared to last month.",
+            "Your balance is positive this month. Great job!"
+        ],
+        "year": 2024,
+        "month": 3
+    }
+    """
+    from datetime import date
+    from decimal import Decimal
+    
+    # Get optional filters
+    year = request.query_params.get('year', None)
+    month = request.query_params.get('month', None)
+    
+    # Use current date if not provided
+    today = date.today()
+    target_year = int(year) if year else today.year
+    target_month = int(month) if month else today.month
+    
+    insights = []
+    
+    # Get current month summary
+    current_summary = FinanceService.get_dashboard_summary(request.user, target_month, target_year)
+    current_spent = current_summary['total_spent']
+    current_income = current_summary['total_income']
+    current_balance = current_summary['current_balance']
+    
+    # Get category distribution
+    category_distribution = FinanceService.get_category_distribution(
+        request.user, target_month, target_year
+    )
+    
+    # Insight 1: Biggest expense category
+    if category_distribution:
+        biggest_category = max(category_distribution, key=lambda x: x['amount'])
+        if biggest_category['amount'] > 0:
+            insights.append(
+                f"{biggest_category['category']} is your biggest expense this month."
+            )
+    
+    # Insight 2: Percentage change from previous month
+    percent_change = current_summary.get('percent_change', 0)
+    if percent_change > 10:
+        insights.append(
+            f"You spent {abs(percent_change):.1f}% more this month compared to last month. "
+            "Consider reviewing your expenses."
+        )
+    elif percent_change < -10:
+        insights.append(
+            f"Great! You spent {abs(percent_change):.1f}% less this month compared to last month."
+        )
+    
+    # Insight 3: Balance status
+    if current_balance > 0:
+        insights.append("Your balance is positive this month. Great job!")
+    elif current_balance < 0:
+        insights.append(
+            f"Warning: You spent {abs(current_balance):.2f} more than you earned this month. "
+            "Consider reducing expenses."
+        )
+    
+    # Insight 4: High spending threshold (if any category > 50% of total spending)
+    if current_spent > 0 and category_distribution:
+        for cat in category_distribution:
+            percentage = (cat['amount'] / float(current_spent)) * 100
+            if percentage > 50:
+                insights.append(
+                    f"{cat['category']} accounts for {percentage:.1f}% of your total spending. "
+                    "This might be worth reviewing."
+                )
+    
+    # Insight 5: Income vs expenses ratio
+    if current_income > 0:
+        expense_ratio = (float(current_spent) / float(current_income)) * 100
+        if expense_ratio > 90:
+            insights.append(
+                "You're spending over 90% of your income. Consider building an emergency fund."
+            )
+        elif expense_ratio < 50:
+            insights.append(
+                "You're saving well! Keep up the good work."
+            )
+    
+    # If no insights, provide a default message
+    if not insights:
+        insights.append("Keep tracking your expenses to receive personalized insights!")
+    
+    return Response({
+        'insights': insights,
         'year': target_year,
         'month': target_month,
     }, status=status.HTTP_200_OK)

@@ -13,8 +13,18 @@ from rest_framework.throttling import ScopedRateThrottle
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView
 from django.contrib.auth import authenticate
-from .serializers import UserRegistrationSerializer, UserSerializer, LoginSerializer
-from .models import CustomUser
+from django.conf import settings
+from django.core.mail import send_mail
+from django.utils import timezone
+from datetime import timedelta
+import random
+from google.auth.transport import requests
+from google.oauth2 import id_token
+from .serializers import (
+    UserRegistrationSerializer, UserSerializer, LoginSerializer,
+    GoogleAuthSerializer, PasswordResetRequestSerializer, PasswordResetConfirmSerializer
+)
+from .models import CustomUser, PasswordResetOTP
 
 
 @api_view(['POST'])
@@ -184,3 +194,235 @@ def user_profile_view(request):
     """
     serializer = UserSerializer(request.user)
     return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+@throttle_classes([ScopedRateThrottle])
+def google_auth_view(request):
+    """
+    Authenticate user with Google ID token.
+    
+    POST /api/auth/google/
+    Body: {
+        "credential": "google_id_token_here"
+    }
+    
+    Returns: {
+        "user": {...},
+        "tokens": {
+            "refresh": "...",
+            "access": "..."
+        }
+    }
+    """
+    serializer = GoogleAuthSerializer(data=request.data)
+    
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    credential = serializer.validated_data['credential']
+    google_client_id = getattr(settings, 'GOOGLE_OAUTH_CLIENT_ID', None)
+    
+    if not google_client_id:
+        return Response(
+            {'error': 'Google OAuth client ID is not configured.'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+    
+    try:
+        # Verify Google ID token
+        idinfo = id_token.verify_oauth2_token(
+            credential,
+            requests.Request(),
+            google_client_id
+        )
+        
+        # Extract user information from Google token
+        google_email = idinfo.get('email')
+        google_name = idinfo.get('name', '')
+        
+        if not google_email:
+            return Response(
+                {'error': 'Email not found in Google token.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Get or create user
+        user, created = CustomUser.objects.get_or_create(
+            email=google_email.lower(),
+            defaults={
+                'currency_preference': 'USD',
+                'is_active': True,
+            }
+        )
+        
+        # Generate JWT tokens
+        refresh = RefreshToken.for_user(user)
+        
+        return Response({
+            'user': UserSerializer(user).data,
+            'tokens': {
+                'refresh': str(refresh),
+                'access': str(refresh.access_token),
+            },
+            'created': created,
+        }, status=status.HTTP_200_OK)
+        
+    except ValueError as e:
+        # Invalid token
+        return Response(
+            {'error': 'Invalid Google token. Please try again.'},
+            status=status.HTTP_401_UNAUTHORIZED
+        )
+    except Exception as e:
+        return Response(
+            {'error': 'An error occurred during Google authentication.'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+@throttle_classes([ScopedRateThrottle])
+def password_reset_request_view(request):
+    """
+    Request password reset with email OTP code.
+    
+    POST /api/auth/password-reset/
+    Body: {
+        "email": "user@example.com"
+    }
+    
+    Returns: {
+        "message": "Password reset code has been sent to your email.",
+        "email": "user@example.com"
+    }
+    """
+    serializer = PasswordResetRequestSerializer(data=request.data)
+    
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    email = serializer.validated_data['email']
+    
+    # Check if user exists (don't reveal if user doesn't exist for security)
+    if not CustomUser.objects.filter(email=email).exists():
+        # Return success message even if user doesn't exist (security best practice)
+        return Response({
+            'message': 'If an account with this email exists, a password reset code has been sent.',
+            'email': email,
+        }, status=status.HTTP_200_OK)
+    
+    # Generate 6-digit OTP code
+    code = ''.join([str(random.randint(0, 9)) for _ in range(6)])
+    
+    # Set expiration (10 minutes from now)
+    expires_at = timezone.now() + timedelta(minutes=10)
+    
+    # Invalidate any existing OTP codes for this email
+    PasswordResetOTP.objects.filter(email=email, used=False).update(used=True)
+    
+    # Create new OTP record
+    otp = PasswordResetOTP.objects.create(
+        email=email,
+        code=code,
+        expires_at=expires_at
+    )
+    
+    # Send email with OTP code
+    try:
+        send_mail(
+            subject='Password Reset Code - Financial Monitor',
+            message=f'Your password reset code is: {code}\n\nThis code will expire in 10 minutes.\n\nIf you did not request this, please ignore this email.',
+            from_email=settings.DEFAULT_FROM_EMAIL if hasattr(settings, 'DEFAULT_FROM_EMAIL') else 'noreply@financialmonitor.com',
+            recipient_list=[email],
+            fail_silently=False,
+        )
+    except Exception as e:
+        # If email fails, delete the OTP record
+        otp.delete()
+        return Response(
+            {'error': 'Failed to send email. Please try again later.'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+    
+    return Response({
+        'message': 'Password reset code has been sent to your email.',
+        'email': email,
+    }, status=status.HTTP_200_OK)
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+@throttle_classes([ScopedRateThrottle])
+def password_reset_confirm_view(request):
+    """
+    Confirm password reset with OTP code and set new password.
+    
+    POST /api/auth/password-reset/confirm/
+    Body: {
+        "email": "user@example.com",
+        "code": "123456",
+        "new_password": "newSecurePassword123"
+    }
+    
+    Returns: {
+        "message": "Password has been reset successfully."
+    }
+    """
+    serializer = PasswordResetConfirmSerializer(data=request.data)
+    
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    email = serializer.validated_data['email']
+    code = serializer.validated_data['code']
+    new_password = serializer.validated_data['new_password']
+    
+    # Find valid OTP record
+    try:
+        otp = PasswordResetOTP.objects.filter(
+            email=email,
+            code=code,
+            used=False
+        ).latest('created_at')
+        
+        # Check if OTP is still valid (not expired)
+        if not otp.is_valid():
+            return Response(
+                {'error': 'OTP code has expired or is invalid. Please request a new code.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Get user
+        try:
+            user = CustomUser.objects.get(email=email)
+        except CustomUser.DoesNotExist:
+            return Response(
+                {'error': 'User not found.'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Update password
+        user.set_password(new_password)
+        user.save()
+        
+        # Mark OTP as used
+        otp.mark_as_used()
+        
+        # Invalidate all other unused OTP codes for this email
+        PasswordResetOTP.objects.filter(
+            email=email,
+            used=False
+        ).exclude(pk=otp.pk).update(used=True)
+        
+        return Response({
+            'message': 'Password has been reset successfully.',
+        }, status=status.HTTP_200_OK)
+        
+    except PasswordResetOTP.DoesNotExist:
+        return Response(
+            {'error': 'Invalid OTP code. Please check your code and try again.'},
+            status=status.HTTP_400_BAD_REQUEST
+        )

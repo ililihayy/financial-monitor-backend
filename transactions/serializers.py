@@ -16,22 +16,37 @@ class CategorySerializer(serializers.ModelSerializer):
     Serializer for Category model with strict validation.
     
     Validates category name, type, and ensures proper user assignment.
+    Includes is_system (computed field) and icon (mapping from icon_identifier).
     """
     
     user = serializers.PrimaryKeyRelatedField(
         read_only=True,
         help_text='Owner of the category (automatically set from authenticated user).'
     )
+    is_system = serializers.SerializerMethodField(
+        read_only=True,
+        help_text='Whether this is a system-default category (user is None).'
+    )
+    icon = serializers.CharField(
+        source='icon_identifier',
+        required=False,
+        allow_blank=True,
+        help_text='Icon identifier for the category (aliased as "icon" for frontend compatibility).'
+    )
 
     class Meta:
         model = Category
-        fields = ('id', 'name', 'user', 'type', 'icon_identifier', 'created_at')
-        read_only_fields = ('id', 'user', 'created_at')
+        fields = ('id', 'name', 'user', 'type', 'icon_identifier', 'icon', 'is_system', 'created_at')
+        read_only_fields = ('id', 'user', 'created_at', 'is_system')
         extra_kwargs = {
             'name': {'required': True, 'allow_blank': False},
             'type': {'required': True},
             'icon_identifier': {'required': False, 'allow_blank': True},
         }
+
+    def get_is_system(self, obj):
+        """Return True if this is a system category (user is None)."""
+        return obj.user is None
 
     def validate_name(self, value):
         """

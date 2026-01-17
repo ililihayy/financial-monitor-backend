@@ -20,7 +20,8 @@ env = environ.Env(
 )
 
 # Read .env file
-environ.Env.read_env(os.path.join(BASE_DIR, '.env'))
+if os.path.exists(os.path.join(BASE_DIR, '.env')):
+    environ.Env.read_env(os.path.join(BASE_DIR, '.env'), encoding='utf-8')
 
 # Security Settings
 SECRET_KEY = env('SECRET_KEY', default='django-insecure-change-me-in-production')
@@ -43,6 +44,7 @@ INSTALLED_APPS = [
     # Local apps
     'accounts',
     'transactions',
+    'drf_spectacular',
 ]
 
 MIDDLEWARE = [
@@ -120,6 +122,7 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # Django REST Framework Configuration
 REST_FRAMEWORK = {
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
     ),
@@ -158,14 +161,26 @@ SIMPLE_JWT = {
     'TOKEN_TYPE_CLAIM': 'token_type',
 }
 
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'FinSecure Monitor API',
+    'DESCRIPTION': 'API для моніторингу витрат та доходів з ML-прогнозуванням',
+    'VERSION': '1.0.0',
+    'SERVE_INCLUDE_SCHEMA': False,
+    'COMPONENT_SPLIT_PATCH': True,
+}
+
 # CORS Configuration (Security: allow specific origins only)
 CORS_ALLOWED_ORIGINS = env.list(
     'CORS_ALLOWED_ORIGINS',
     default=[
         'http://localhost:3000',  # React default port
         'http://127.0.0.1:3000',
+        'http://localhost:8080',  # Alternative frontend port
+        'http://127.0.0.1:8080',
     ]
 )
+
+SECURE_CROSS_ORIGIN_OPENER_POLICY = 'same-origin-allow-popups'
 
 CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOW_METHODS = [
@@ -229,3 +244,34 @@ LOGGING = {
 # Create logs directory if it doesn't exist
 LOGS_DIR = BASE_DIR / 'logs'
 LOGS_DIR.mkdir(exist_ok=True)
+
+# Authentication Backends
+AUTHENTICATION_BACKENDS = [
+    'django.contrib.auth.backends.ModelBackend',  # Default Django authentication
+]
+
+# Site ID (required for django-allauth)
+SITE_ID = 1
+
+# Email Backend Configuration
+# For development, use console backend to see emails in terminal
+# For production, use SMTP backend with proper credentials
+EMAIL_BACKEND = env(
+    'EMAIL_BACKEND',
+    default='django.core.mail.backends.console.EmailBackend'
+)
+
+# Email Settings (for production, configure these in .env)
+EMAIL_HOST = env('EMAIL_HOST', default='smtp.gmail.com')
+EMAIL_PORT = env.int('EMAIL_PORT', default=587)
+EMAIL_USE_TLS = env.bool('EMAIL_USE_TLS', default=True)
+EMAIL_HOST_USER = env('EMAIL_HOST_USER', default='')
+EMAIL_HOST_PASSWORD = env('EMAIL_HOST_PASSWORD', default='')
+DEFAULT_FROM_EMAIL = env('DEFAULT_FROM_EMAIL', default='noreply@financialmonitor.com')
+
+# Google OAuth Configuration
+# Set these in your .env file:
+# GOOGLE_OAUTH_CLIENT_ID=your_google_client_id_here
+# GOOGLE_OAUTH_CLIENT_SECRET=your_google_client_secret_here (optional, for server-side)
+GOOGLE_OAUTH_CLIENT_ID = env('GOOGLE_OAUTH_CLIENT_ID', default='')
+GOOGLE_OAUTH_CLIENT_SECRET = env('GOOGLE_OAUTH_CLIENT_SECRET', default='')

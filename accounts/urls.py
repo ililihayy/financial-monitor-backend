@@ -11,4 +11,7 @@ urlpatterns = [
     path('refresh/', views.refresh_token_view, name='refresh'),
     path('logout/', views.logout_view, name='logout'),
     path('profile/', views.user_profile_view, name='profile'),
+    path('google/', views.google_auth_view, name='google-auth'),
+    path('password-reset/', views.password_reset_request_view, name='password-reset-request'),
+    path('password-reset/confirm/', views.password_reset_confirm_view, name='password-reset-confirm'),
 ]

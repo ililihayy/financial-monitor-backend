@@ -4,7 +4,7 @@ Admin configuration for the accounts app.
 
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
-from .models import CustomUser
+from .models import CustomUser, PasswordResetOTP
 
 
 @admin.register(CustomUser)
@@ -28,4 +28,20 @@ class CustomUserAdmin(BaseUserAdmin):
             'classes': ('wide',),
             'fields': ('email', 'password1', 'password2', 'currency_preference', 'is_staff', 'is_active'),
         }),
+    )
+
+
+@admin.register(PasswordResetOTP)
+class PasswordResetOTPAdmin(admin.ModelAdmin):
+    """Admin interface for PasswordResetOTP model."""
+    
+    list_display = ('email', 'code', 'created_at', 'expires_at', 'used', 'used_at')
+    list_filter = ('used', 'created_at', 'expires_at')
+    search_fields = ('email', 'code')
+    readonly_fields = ('created_at', 'expires_at', 'used_at')
+    ordering = ('-created_at',)
+    
+    fieldsets = (
+        (None, {'fields': ('email', 'code')}),
+        ('Status', {'fields': ('used', 'created_at', 'expires_at', 'used_at')}),
     )
