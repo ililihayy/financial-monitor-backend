@@ -13,10 +13,10 @@ from .models import CustomUser
 class UserRegistrationSerializer(serializers.ModelSerializer):
     """
     Serializer for user registration with strict validation.
-    
+
     Validates email format, password strength, and ensures all required fields are present.
     """
-    
+
     password = serializers.CharField(
         write_only=True,
         required=True,
@@ -33,44 +33,47 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = CustomUser
-        fields = ('email', 'password', 'password_confirm', 'currency_preference')
+        fields = ('email', 'nickname', 'password',
+                  'password_confirm', 'currency_preference')
         extra_kwargs = {
             'email': {'required': True},
+            'nickname': {'required': False},
             'currency_preference': {'required': False},
         }
 
     def validate_email(self, value):
         """
         Validate email format and uniqueness.
-        
+
         Args:
             value: Email address to validate
-            
+
         Returns:
             str: Validated email address
-            
+
         Raises:
             serializers.ValidationError: If email is invalid or already exists
         """
         if not value:
             raise serializers.ValidationError("Email is required.")
-        
+
         # Check if email already exists
         if CustomUser.objects.filter(email=value).exists():
-            raise serializers.ValidationError("A user with this email already exists.")
-        
+            raise serializers.ValidationError(
+                "A user with this email already exists.")
+
         return value.lower().strip()
 
     def validate(self, attrs):
         """
         Validate that password and password_confirm match.
-        
+
         Args:
             attrs: Dictionary of serializer fields
-            
+
         Returns:
             dict: Validated attributes
-            
+
         Raises:
             serializers.ValidationError: If passwords don't match
         """
@@ -83,16 +86,17 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         """
         Create and return a new user instance.
-        
+
         Args:
             validated_data: Validated serializer data
-            
+
         Returns:
             CustomUser: The created user instance
         """
         validated_data.pop('password_confirm')
         password = validated_data.pop('password')
-        user = CustomUser.objects.create_user(password=password, **validated_data)
+        user = CustomUser.objects.create_user(
+            password=password, **validated_data)
         return user
 
 
@@ -100,20 +104,21 @@ class UserSerializer(serializers.ModelSerializer):
     """
     Serializer for user profile information (read-only for sensitive data).
     """
-    
+
     class Meta:
         model = CustomUser
-        fields = ('id', 'email', 'currency_preference', 'date_joined')
-        read_only_fields = ('id', 'email', 'date_joined')
+        fields = ('id', 'email', 'nickname',
+                  'currency_preference', 'date_joined')
+        read_only_fields = ('id', 'email', 'nickname', 'date_joined')
 
 
 class LoginSerializer(serializers.Serializer):
     """
     Serializer for user login with email and password.
-    
+
     Validates credentials and returns user instance if valid.
     """
-    
+
     email = serializers.EmailField(
         required=True,
         help_text='User email address.'
@@ -128,13 +133,13 @@ class LoginSerializer(serializers.Serializer):
     def validate(self, attrs):
         """
         Validate user credentials.
-        
+
         Args:
             attrs: Dictionary containing email and password
-            
+
         Returns:
             dict: Validated attributes with user instance
-            
+
         Raises:
             serializers.ValidationError: If credentials are invalid
         """
@@ -143,7 +148,7 @@ class LoginSerializer(serializers.Serializer):
 
         if email and password:
             user = authenticate(email=email, password=password)
-            
+
             if not user:
                 raise serializers.ValidationError(
                     'Unable to log in with provided credentials.'
@@ -152,7 +157,7 @@ class LoginSerializer(serializers.Serializer):
                 raise serializers.ValidationError(
                     'User account is disabled.'
                 )
-            
+
             attrs['user'] = user
         else:
             raise serializers.ValidationError(
@@ -165,10 +170,10 @@ class LoginSerializer(serializers.Serializer):
 class GoogleAuthSerializer(serializers.Serializer):
     """
     Serializer for Google authentication with ID token.
-    
+
     Accepts a Google ID token from the frontend and validates it.
     """
-    
+
     credential = serializers.CharField(
         required=True,
         help_text='Google ID token (credential) from Google One Tap or Google Login.'
@@ -177,13 +182,13 @@ class GoogleAuthSerializer(serializers.Serializer):
     def validate_credential(self, value):
         """
         Validate Google ID token.
-        
+
         Args:
             value: Google ID token string
-            
+
         Returns:
             str: Validated token string
-            
+
         Raises:
             serializers.ValidationError: If token is invalid or empty
         """
@@ -195,10 +200,10 @@ class GoogleAuthSerializer(serializers.Serializer):
 class PasswordResetRequestSerializer(serializers.Serializer):
     """
     Serializer for password reset request.
-    
+
     Accepts email and generates a 6-digit OTP code.
     """
-    
+
     email = serializers.EmailField(
         required=True,
         help_text='Email address of the user requesting password reset.'
@@ -207,13 +212,13 @@ class PasswordResetRequestSerializer(serializers.Serializer):
     def validate_email(self, value):
         """
         Validate email format and existence.
-        
+
         Args:
             value: Email address to validate
-            
+
         Returns:
             str: Validated email address
-            
+
         Raises:
             serializers.ValidationError: If email is invalid
         """
@@ -225,10 +230,10 @@ class PasswordResetRequestSerializer(serializers.Serializer):
 class PasswordResetConfirmSerializer(serializers.Serializer):
     """
     Serializer for password reset confirmation.
-    
+
     Accepts email, OTP code, and new password.
     """
-    
+
     email = serializers.EmailField(
         required=True,
         help_text='Email address of the user.'
@@ -256,16 +261,17 @@ class PasswordResetConfirmSerializer(serializers.Serializer):
     def validate_code(self, value):
         """
         Validate OTP code format (must be 6 digits).
-        
+
         Args:
             value: OTP code to validate
-            
+
         Returns:
             str: Validated code
-            
+
         Raises:
             serializers.ValidationError: If code format is invalid
         """
         if not value or not value.isdigit() or len(value) != 6:
-            raise serializers.ValidationError("OTP code must be exactly 6 digits.")
+            raise serializers.ValidationError(
+                "OTP code must be exactly 6 digits.")
         return value

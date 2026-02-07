@@ -341,9 +341,13 @@ def password_reset_request_view(request):
         )
     except Exception as e:
         # If email fails, delete the OTP record
+        print("------- EMAIL ERROR -------")
+        print(e)
+        print("---------------------------")
+        
         otp.delete()
         return Response(
-            {'error': 'Failed to send email. Please try again later.'},
+            {'error': f'Failed to send email: {str(e)}'}, # Додамо опис помилки у відповідь
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
     

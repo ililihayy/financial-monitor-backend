@@ -12,25 +12,25 @@ from django.utils import timezone
 class CustomUserManager(BaseUserManager):
     """
     Custom user manager where email is the unique identifier.
-    
+
     Handles user creation with email as the primary field instead of username.
     """
 
     def create_user(self, email, password=None, **extra_fields):
         """
         Create and save a regular user with the given email and password.
-        
+
         Args:
             email: User's email address (required)
             password: User's password (optional for initial creation)
             **extra_fields: Additional fields (currency_preference, etc.)
-            
+
         Returns:
             CustomUser: The created user instance
         """
         if not email:
             raise ValueError('The Email field must be set')
-        
+
         email = self.normalize_email(email)
         user = self.model(email=email, **extra_fields)
         user.set_password(password)
@@ -40,12 +40,12 @@ class CustomUserManager(BaseUserManager):
     def create_superuser(self, email, password=None, **extra_fields):
         """
         Create and save a superuser with the given email and password.
-        
+
         Args:
             email: User's email address (required)
             password: User's password (required)
             **extra_fields: Additional fields
-            
+
         Returns:
             CustomUser: The created superuser instance
         """
@@ -63,7 +63,7 @@ class CustomUserManager(BaseUserManager):
 class CustomUser(AbstractBaseUser, PermissionsMixin):
     """
     Custom User model with email as the primary identifier.
-    
+
     Fields:
         email: Primary identifier (unique)
         currency_preference: User's preferred currency (default: 'USD')
@@ -71,7 +71,7 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
         is_staff: Boolean for admin access
         is_active: Boolean for account status
     """
-    
+
     # Currency choices (can be expanded)
     CURRENCY_CHOICES = [
         ('USD', 'US Dollar'),
@@ -85,6 +85,14 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
         max_length=255,
         verbose_name='Email Address',
         help_text='Required. Email address is used as the primary identifier.'
+    )
+    nickname = models.CharField(
+        max_length=50,
+        unique=True,
+        null=True,
+        blank=True,
+        verbose_name='Nickname',
+        help_text='Display name for the user. Must be unique.'
     )
     currency_preference = models.CharField(
         max_length=3,
@@ -127,11 +135,11 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
 class PasswordResetOTP(models.Model):
     """
     Model for storing password reset OTP codes.
-    
+
     Stores 6-digit codes sent via email for password reset functionality.
     Codes expire after 10 minutes and are invalidated after successful use.
     """
-    
+
     email = models.EmailField(
         verbose_name='Email Address',
         help_text='Email address of the user requesting password reset.'
@@ -178,7 +186,7 @@ class PasswordResetOTP(models.Model):
     def is_valid(self):
         """
         Check if the OTP code is still valid (not used and not expired).
-        
+
         Returns:
             bool: True if the code is valid, False otherwise
         """

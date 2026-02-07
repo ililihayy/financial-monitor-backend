@@ -13,11 +13,11 @@ from django.utils import timezone
 class Category(models.Model):
     """
     Category model for organizing transactions.
-    
+
     Supports both system-default categories (user=None) and user-created categories.
     Categories can be either Income or Expense type.
     """
-    
+
     TYPE_CHOICES = [
         ('Income', 'Income'),
         ('Expense', 'Expense'),
@@ -49,6 +49,11 @@ class Category(models.Model):
         verbose_name='Icon Identifier',
         help_text='Identifier for the icon to display (e.g., "food", "shopping")'
     )
+    is_active = models.BooleanField(
+        default=True,
+        verbose_name='Is Active',
+        help_text='Whether this category is active and can be used for new transactions.'
+    )
     created_at = models.DateTimeField(
         auto_now_add=True,
         verbose_name='Created At',
@@ -72,14 +77,29 @@ class Category(models.Model):
         owner = self.user.email if self.user else 'System'
         return f"{self.name} ({self.type}) - {owner}"
 
+    def delete(self, *args, **kwargs):
+        """
+        Override delete to implement soft-delete logic.
+
+        If the category has linked transactions, set is_active=False instead of deleting.
+        Otherwise, perform actual deletion.
+        """
+        if self.transactions.exists():
+            # Soft delete: mark as inactive instead of removing from database
+            self.is_active = False
+            self.save(update_fields=['is_active'])
+        else:
+            # Hard delete: no linked transactions, safe to remove
+            super().delete(*args, **kwargs)
+
 
 class Transaction(models.Model):
     """
     Transaction model representing financial transactions.
-    
+
     Each transaction belongs to a user and a category, with amount, date, and optional description.
     """
-    
+
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,

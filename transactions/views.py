@@ -24,7 +24,7 @@ from .services import FinanceService, MLForecastService
 class CategoryListCreateView(generics.ListCreateAPIView):
     """
     List all categories (system-default + user-created) or create a new category.
-    
+
     GET /api/categories/ - List all categories
     POST /api/categories/ - Create a new category
     """
@@ -32,10 +32,11 @@ class CategoryListCreateView(generics.ListCreateAPIView):
     serializer_class = CategorySerializer
 
     def get_queryset(self):
-        """Return system categories and user's categories."""
+        """Return active system categories and user's active categories."""
         user = self.request.user
         return Category.objects.filter(
-            Q(user=user) | Q(user=None)  # User's categories or system categories
+            # User's active categories or system active categories
+            Q(user=user, is_active=True) | Q(user=None, is_active=True)
         ).distinct()
 
     def perform_create(self, serializer):
@@ -46,7 +47,7 @@ class CategoryListCreateView(generics.ListCreateAPIView):
 class CategoryDetailView(generics.RetrieveUpdateDestroyAPIView):
     """
     Retrieve, update, or delete a category.
-    
+
     GET /api/categories/{id}/ - Get category details
     PUT /api/categories/{id}/ - Update category
     PATCH /api/categories/{id}/ - Partial update category
@@ -74,7 +75,7 @@ class CategoryDetailView(generics.RetrieveUpdateDestroyAPIView):
 class TransactionListCreateView(generics.ListCreateAPIView):
     """
     List transactions with filtering or create a new transaction.
-    
+
     GET /api/transactions/?date_from=2024-01-01&date_to=2024-12-31&category=1
     POST /api/transactions/ - Create a new transaction
     """
@@ -85,26 +86,26 @@ class TransactionListCreateView(generics.ListCreateAPIView):
         """Filter transactions by user and optional filters."""
         user = self.request.user
         queryset = Transaction.objects.filter(user=user)
-        
+
         # Filter by date range
         date_from = self.request.query_params.get('date_from', None)
         date_to = self.request.query_params.get('date_to', None)
-        
+
         if date_from:
             queryset = queryset.filter(date__gte=date_from)
         if date_to:
             queryset = queryset.filter(date__lte=date_to)
-        
+
         # Filter by category
         category_id = self.request.query_params.get('category', None)
         if category_id:
             queryset = queryset.filter(category_id=category_id)
-        
+
         # Filter by type (Income/Expense)
         transaction_type = self.request.query_params.get('type', None)
         if transaction_type:
             queryset = queryset.filter(category__type=transaction_type)
-        
+
         return queryset.order_by('-date', '-created_at')
 
     def perform_create(self, serializer):
@@ -115,7 +116,7 @@ class TransactionListCreateView(generics.ListCreateAPIView):
 class TransactionDetailView(generics.RetrieveUpdateDestroyAPIView):
     """
     Retrieve, update, or delete a transaction.
-    
+
     GET /api/transactions/{id}/ - Get transaction details
     PUT /api/transactions/{id}/ - Update transaction
     PATCH /api/transactions/{id}/ - Partial update transaction
@@ -136,9 +137,9 @@ class TransactionDetailView(generics.RetrieveUpdateDestroyAPIView):
 def dashboard_view(request):
     """
     Get dashboard data: summary with totals, balance, and category distribution.
-    
+
     GET /api/analytics/dashboard/?year=2024&month=3
-    
+
     Returns: {
         "total_income": 5000.00,
         "total_spent": 3500.00,
@@ -155,24 +156,25 @@ def dashboard_view(request):
     # Get optional filters
     year = request.query_params.get('year', None)
     month = request.query_params.get('month', None)
-    
+
     # Use current date if not provided
     from datetime import date
     today = date.today()
     target_year = int(year) if year else today.year
     target_month = int(month) if month else today.month
-    
+
     # Get dashboard summary (includes totals and percent change)
-    summary = FinanceService.get_dashboard_summary(request.user, target_month, target_year)
-    
+    summary = FinanceService.get_dashboard_summary(
+        request.user, target_month, target_year)
+
     # Get category distribution for Donut Chart
     category_distribution = FinanceService.get_category_distribution(
         request.user, target_month, target_year
     )
-    
+
     # Add category distribution to response
     summary['category_distribution'] = category_distribution
-    
+
     return Response(summary, status=status.HTTP_200_OK)
 
 
@@ -182,9 +184,9 @@ def dashboard_view(request):
 def forecast_view(request):
     """
     Get ML-based expense forecast for the next month.
-    
+
     GET /api/analytics/forecast/?months_back=12
-    
+
     Returns: {
         "predicted_amount": 1250.50,
         "confidence_score": 0.85,
@@ -196,15 +198,15 @@ def forecast_view(request):
     # Get optional parameter
     months_back = request.query_params.get('months_back', 12)
     months_back = int(months_back) if months_back else 12
-    
+
     # Ensure valid range
     months_back = max(6, min(months_back, 24))  # Between 6 and 24 months
-    
+
     # Get prediction
     prediction = MLForecastService.predict_next_month_expense(
         request.user, months_back
     )
-    
+
     return Response(prediction, status=status.HTTP_200_OK)
 
 
@@ -213,9 +215,9 @@ def forecast_view(request):
 def balance_view(request):
     """
     Get monthly balance (Income - Expenses).
-    
+
     GET /api/analytics/balance/?year=2024&month=3
-    
+
     Returns: {
         "balance": 1500.00,
         "year": 2024,
@@ -225,18 +227,18 @@ def balance_view(request):
     # Get optional filters
     year = request.query_params.get('year', None)
     month = request.query_params.get('month', None)
-    
+
     # Use current date if not provided
     from datetime import date
     today = date.today()
     target_year = int(year) if year else today.year
     target_month = int(month) if month else today.month
-    
+
     # Calculate balance
     balance = FinanceService.calculate_monthly_balance(
         request.user, target_year, target_month
     )
-    
+
     return Response({
         'balance': balance,
         'year': target_year,
@@ -249,9 +251,9 @@ def balance_view(request):
 def trend_view(request):
     """
     Get monthly trend data for analytics visualization.
-    
+
     GET /api/analytics/trend/?months_back=12
-    
+
     Returns: [
         {
             "month": "2024-01",
@@ -268,16 +270,16 @@ def trend_view(request):
     from django.db.models import DecimalField
     from decimal import Decimal
     from datetime import date, timedelta
-    
+
     # Get optional parameter
     months_back = request.query_params.get('months_back', 12)
     months_back = int(months_back) if months_back else 12
     months_back = max(6, min(months_back, 24))  # Between 6 and 24 months
-    
+
     # Calculate date range
     end_date = date.today()
     start_date = end_date - timedelta(days=months_back * 31)
-    
+
     # Get monthly income
     monthly_income = Transaction.objects.filter(
         user=request.user,
@@ -289,7 +291,7 @@ def trend_view(request):
     ).values('month').annotate(
         total=Sum('amount', output_field=DecimalField())
     ).order_by('month')
-    
+
     # Get monthly expenses
     monthly_expenses = Transaction.objects.filter(
         user=request.user,
@@ -301,14 +303,17 @@ def trend_view(request):
     ).values('month').annotate(
         total=Sum('amount', output_field=DecimalField())
     ).order_by('month')
-    
+
     # Create dictionaries for quick lookup
-    income_dict = {item['month']: float(item['total'] or Decimal('0.00')) for item in monthly_income}
-    expenses_dict = {item['month']: float(item['total'] or Decimal('0.00')) for item in monthly_expenses}
-    
+    income_dict = {item['month']: float(
+        item['total'] or Decimal('0.00')) for item in monthly_income}
+    expenses_dict = {item['month']: float(
+        item['total'] or Decimal('0.00')) for item in monthly_expenses}
+
     # Get all unique months
-    all_months = sorted(set(list(income_dict.keys()) + list(expenses_dict.keys())))
-    
+    all_months = sorted(
+        set(list(income_dict.keys()) + list(expenses_dict.keys())))
+
     # Build response
     result = []
     for month in all_months:
@@ -320,7 +325,7 @@ def trend_view(request):
             'expenses': expenses,
             'balance': income - expenses
         })
-    
+
     return Response(result, status=status.HTTP_200_OK)
 
 
@@ -329,9 +334,9 @@ def trend_view(request):
 def ai_insights_view(request):
     """
     Get AI-generated insights and tips based on transaction analysis.
-    
+
     GET /api/analytics/insights/?year=2024&month=3
-    
+
     Returns: {
         "insights": [
             "Rent is your biggest expense this month.",
@@ -344,37 +349,39 @@ def ai_insights_view(request):
     """
     from datetime import date
     from decimal import Decimal
-    
+
     # Get optional filters
     year = request.query_params.get('year', None)
     month = request.query_params.get('month', None)
-    
+
     # Use current date if not provided
     today = date.today()
     target_year = int(year) if year else today.year
     target_month = int(month) if month else today.month
-    
+
     insights = []
-    
+
     # Get current month summary
-    current_summary = FinanceService.get_dashboard_summary(request.user, target_month, target_year)
+    current_summary = FinanceService.get_dashboard_summary(
+        request.user, target_month, target_year)
     current_spent = current_summary['total_spent']
     current_income = current_summary['total_income']
     current_balance = current_summary['current_balance']
-    
+
     # Get category distribution
     category_distribution = FinanceService.get_category_distribution(
         request.user, target_month, target_year
     )
-    
+
     # Insight 1: Biggest expense category
     if category_distribution:
-        biggest_category = max(category_distribution, key=lambda x: x['amount'])
+        biggest_category = max(category_distribution,
+                               key=lambda x: x['amount'])
         if biggest_category['amount'] > 0:
             insights.append(
                 f"{biggest_category['category']} is your biggest expense this month."
             )
-    
+
     # Insight 2: Percentage change from previous month
     percent_change = current_summary.get('percent_change', 0)
     if percent_change > 10:
@@ -386,7 +393,7 @@ def ai_insights_view(request):
         insights.append(
             f"Great! You spent {abs(percent_change):.1f}% less this month compared to last month."
         )
-    
+
     # Insight 3: Balance status
     if current_balance > 0:
         insights.append("Your balance is positive this month. Great job!")
@@ -395,7 +402,7 @@ def ai_insights_view(request):
             f"Warning: You spent {abs(current_balance):.2f} more than you earned this month. "
             "Consider reducing expenses."
         )
-    
+
     # Insight 4: High spending threshold (if any category > 50% of total spending)
     if current_spent > 0 and category_distribution:
         for cat in category_distribution:
@@ -405,7 +412,7 @@ def ai_insights_view(request):
                     f"{cat['category']} accounts for {percentage:.1f}% of your total spending. "
                     "This might be worth reviewing."
                 )
-    
+
     # Insight 5: Income vs expenses ratio
     if current_income > 0:
         expense_ratio = (float(current_spent) / float(current_income)) * 100
@@ -417,11 +424,12 @@ def ai_insights_view(request):
             insights.append(
                 "You're saving well! Keep up the good work."
             )
-    
+
     # If no insights, provide a default message
     if not insights:
-        insights.append("Keep tracking your expenses to receive personalized insights!")
-    
+        insights.append(
+            "Keep tracking your expenses to receive personalized insights!")
+
     return Response({
         'insights': insights,
         'year': target_year,
