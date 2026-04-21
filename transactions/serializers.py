@@ -9,6 +9,7 @@ from django.core.validators import MinValueValidator
 from django.utils import timezone
 from datetime import datetime, date
 from .models import Category, Transaction
+from accounts.services.pii_detection_service import PIIDetectionService
 
 
 class CategorySerializer(serializers.ModelSerializer):
@@ -130,19 +131,40 @@ class TransactionSerializer(serializers.ModelSerializer):
         read_only=True,
         help_text='Type of the associated category (read-only).'
     )
+    predicted_category_name = serializers.CharField(
+        source='predicted_category.name',
+        read_only=True,
+        default=None,
+        help_text='ML-predicted category name (read-only).'
+    )
+    pii_warnings = serializers.SerializerMethodField(
+        read_only=True,
+        help_text='PII warnings detected in description (read-only).'
+    )
 
     class Meta:
         model = Transaction
         fields = (
             'id', 'user', 'category', 'category_name', 'category_type',
-            'amount', 'date', 'description', 'created_at'
+            'amount', 'date', 'description', 'is_suspicious', 'anomaly_score',
+            'predicted_category', 'predicted_category_name',
+            'is_encrypted', 'pii_warnings', 'created_at'
         )
-        read_only_fields = ('id', 'user', 'created_at')
+        read_only_fields = ('id', 'user', 'created_at', 'is_suspicious',
+                            'anomaly_score', 'predicted_category', 'is_encrypted')
         extra_kwargs = {
             'amount': {'required': True},
             'date': {'required': True},
             'description': {'required': False, 'allow_blank': True},
         }
+
+    _pii_warnings = None
+
+    def get_pii_warnings(self, obj):
+        """Return PII warnings if they were detected during validation."""
+        if hasattr(self, '_pii_warnings') and self._pii_warnings:
+            return self._pii_warnings
+        return None
 
     def validate_amount(self, value):
         """
@@ -225,21 +247,20 @@ class TransactionSerializer(serializers.ModelSerializer):
 
     def validate_description(self, value):
         """
-        Validate description length.
-
-        Args:
-            value: Description text to validate
-
-        Returns:
-            str: Validated description
-
-        Raises:
-            serializers.ValidationError: If description is too long
+        Validate description length and scan for PII.
         """
         if value and len(value) > 5000:
             raise serializers.ValidationError(
                 "Description cannot exceed 5000 characters."
             )
+
+        # PII detection: warn (don't block) — include findings in context
+        if value:
+            pii_findings = PIIDetectionService.scan(value)
+            if pii_findings:
+                # Store findings in the serializer context so the view can
+                # include the warning in the response without blocking save.
+                self._pii_warnings = pii_findings
 
         return value
 

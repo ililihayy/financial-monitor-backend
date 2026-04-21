@@ -116,6 +116,14 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
         verbose_name='Active',
         help_text='Designates whether this user should be treated as active.'
     )
+    monthly_budget = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        verbose_name='Monthly Budget',
+        help_text='Optional monthly spending limit for predictive budget alerts.'
+    )
 
     objects = CustomUserManager()
 

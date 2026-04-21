@@ -131,6 +131,31 @@ class Transaction(models.Model):
         verbose_name='Description',
         help_text='Optional description or notes about the transaction.'
     )
+    is_suspicious = models.BooleanField(
+        default=False,
+        verbose_name='Is Suspicious',
+        help_text='Flagged by Isolation Forest anomaly detection.'
+    )
+    anomaly_score = models.FloatField(
+        null=True,
+        blank=True,
+        verbose_name='Anomaly Score',
+        help_text='Isolation Forest anomaly score (lower = more anomalous).'
+    )
+    predicted_category = models.ForeignKey(
+        'Category',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='predicted_transactions',
+        verbose_name='Predicted Category',
+        help_text='ML-predicted category from auto-categorization service.'
+    )
+    is_encrypted = models.BooleanField(
+        default=False,
+        verbose_name='Is Encrypted',
+        help_text='Whether the description field is Fernet-encrypted at rest.'
+    )
     created_at = models.DateTimeField(
         auto_now_add=True,
         verbose_name='Created At',

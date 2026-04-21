@@ -24,7 +24,8 @@ if os.path.exists(os.path.join(BASE_DIR, '.env')):
     environ.Env.read_env(os.path.join(BASE_DIR, '.env'), encoding='utf-8')
 
 # Security Settings
-SECRET_KEY = env('SECRET_KEY', default='django-insecure-change-me-in-production')
+SECRET_KEY = env(
+    'SECRET_KEY', default='django-insecure-change-me-in-production')
 DEBUG = env('DEBUG', default=False)
 ALLOWED_HOSTS = env.list('ALLOWED_HOSTS', default=['localhost', '127.0.0.1'])
 
@@ -41,6 +42,9 @@ INSTALLED_APPS = [
     'rest_framework_simplejwt',
     'rest_framework_simplejwt.token_blacklist',
     'corsheaders',
+    'django_otp',
+    'django_otp.plugins.otp_totp',
+    'axes',
     # Local apps
     'accounts',
     'transactions',
@@ -51,7 +55,8 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     'csp.middleware.CSPMiddleware',
     'django.middleware.security.SecurityMiddleware',
-    'corsheaders.middleware.CorsMiddleware',  # CORS middleware (early in stack)
+    # CORS middleware (early in stack)
+    'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -60,6 +65,8 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     # Custom logging middleware for security monitoring
     'financial_monitor.middleware.SecurityLoggingMiddleware',
+    # Brute-force protection — must be last
+    'axes.middleware.AxesMiddleware',
 ]
 
 ROOT_URLCONF = 'financial_monitor.urls'
@@ -161,7 +168,7 @@ SIMPLE_JWT = {
     'USER_ID_CLAIM': 'user_id',
     'AUTH_TOKEN_CLASSES': ('rest_framework_simplejwt.tokens.AccessToken',),
     'TOKEN_TYPE_CLAIM': 'token_type',
-    'UPDATE_LAST_LOGIN': True,  
+    'UPDATE_LAST_LOGIN': True,
 }
 
 SPECTACULAR_SETTINGS = {
@@ -217,7 +224,7 @@ if not DEBUG:
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
     SECURE_HSTS_PRELOAD = True
     SECURE_SSL_REDIRECT = env.bool('SECURE_SSL_REDIRECT', default=True)
-    
+
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
     SESSION_COOKIE_HTTPONLY = True
@@ -263,6 +270,8 @@ LOGS_DIR.mkdir(exist_ok=True)
 
 # Authentication Backends
 AUTHENTICATION_BACKENDS = [
+    # Brute-force protection (must be first)
+    'axes.backends.AxesStandaloneBackend',
     'django.contrib.auth.backends.ModelBackend',  # Default Django authentication
 ]
 
@@ -283,7 +292,8 @@ EMAIL_PORT = env.int('EMAIL_PORT', default=587)
 EMAIL_USE_TLS = env.bool('EMAIL_USE_TLS', default=True)
 EMAIL_HOST_USER = env('EMAIL_HOST_USER', default='')
 EMAIL_HOST_PASSWORD = env('EMAIL_HOST_PASSWORD', default='')
-DEFAULT_FROM_EMAIL = env('DEFAULT_FROM_EMAIL', default='noreply@financialmonitor.com')
+DEFAULT_FROM_EMAIL = env('DEFAULT_FROM_EMAIL',
+                         default='noreply@financialmonitor.com')
 
 # Google OAuth Configuration
 # Set these in your .env file:
@@ -292,10 +302,65 @@ DEFAULT_FROM_EMAIL = env('DEFAULT_FROM_EMAIL', default='noreply@financialmonitor
 GOOGLE_OAUTH_CLIENT_ID = env('GOOGLE_OAUTH_CLIENT_ID', default='')
 GOOGLE_OAUTH_CLIENT_SECRET = env('GOOGLE_OAUTH_CLIENT_SECRET', default='')
 
-# Content Security Policy налаштування
-CSP_DEFAULT_SRC = ("'self'",)
-CSP_STYLE_SRC = ("'self'", "'unsafe-inline'", "https://fonts.googleapis.com")
-CSP_SCRIPT_SRC = ("'self'", "'unsafe-inline'", "https://accounts.google.com", "https://www.gstatic.com")
-CSP_FONT_SRC = ("'self'", "https://fonts.gstatic.com", "data:")
-CSP_IMG_SRC = ("'self'", "data:", "https://*.googleusercontent.com")
-CSP_CONNECT_SRC = ("'self'", "http://localhost:8000", "https://accounts.google.com")
+# =============================================================================
+# Django-Axes: Brute-Force Protection
+# =============================================================================
+AXES_FAILURE_LIMIT = 5                   # Lock after 5 failed attempts
+AXES_COOLOFF_TIME = 1                    # Lock duration in hours
+AXES_LOCKOUT_PARAMETERS = ['ip_address', 'username']  # Lock per IP + username
+AXES_RESET_ON_SUCCESS = True             # Reset counter on successful login
+AXES_ENABLED = True
+
+# =============================================================================
+# Field-Level Encryption (Fernet / AES-128-CBC + HMAC-SHA256)
+# =============================================================================
+# Generate with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+FIELD_ENCRYPTION_KEY = env('FIELD_ENCRYPTION_KEY', default='')
+
+# =============================================================================
+# Audit Logging
+# =============================================================================
+LOGGING['handlers']['audit_file'] = {
+    'level': 'INFO',
+    'class': 'logging.FileHandler',
+    'filename': BASE_DIR / 'logs' / 'audit.log',
+    'formatter': 'verbose',
+}
+LOGGING['loggers']['audit'] = {
+    'handlers': ['audit_file', 'console'],
+    'level': 'INFO',
+    'propagate': False,
+}
+
+# Large transaction threshold — transactions above this trigger an audit entry
+LARGE_TRANSACTION_THRESHOLD = env.float(
+    'LARGE_TRANSACTION_THRESHOLD', default=10000.00)
+
+# Оновлений формат налаштувань для django-csp 4.0+
+CONTENT_SECURITY_POLICY = {
+    'DIRECTIVES': {
+        'default-src': ("'self'",),
+        'script-src': (
+            "'self'",
+            "'unsafe-inline'",
+            "https://accounts.google.com",
+            "https://www.gstatic.com",
+        ),
+        'style-src': (
+            "'self'",
+            "'unsafe-inline'",
+            "https://fonts.googleapis.com",
+        ),
+        'font-src': ("'self'", "https://fonts.gstatic.com", "data:"),
+        'img-src': (
+            "'self'",
+            "data:",
+            "https://*.googleusercontent.com",
+        ),
+        'connect-src': (
+            "'self'",
+            "http://localhost:8000",
+            "https://accounts.google.com",
+        ),
+    }
+}

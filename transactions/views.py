@@ -17,6 +17,17 @@ from .serializers import (
     CategorySerializer, TransactionSerializer, TransactionListSerializer
 )
 from .services import FinanceService, MLForecastService
+from rest_framework import status, generics
+from rest_framework.response import Response
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAuthenticated
+from django.db.models import Sum, Q
+from .models import Transaction, Category
+from .services import (
+    FinanceService, MLForecastService,
+    AnomalyDetectionService, AutoCategorizationService,
+    BudgetAlertService, FinancialHealthService, MLRetrainingService,
+)
 
 
 # ========== Category Views ==========
@@ -109,8 +120,38 @@ class TransactionListCreateView(generics.ListCreateAPIView):
         return queryset.order_by('-date', '-created_at')
 
     def perform_create(self, serializer):
-        """Set the user when creating a transaction."""
-        serializer.save(user=self.request.user)
+        """Set the user when creating a transaction, then run ML post-processing."""
+        from django.conf import settings as django_settings
+        from accounts.services import EncryptionService, PIIDetectionService, AuditService
+
+        transaction = serializer.save(user=self.request.user)
+        ip = self.request.META.get('REMOTE_ADDR', 'unknown')
+
+        # 1. Encrypt description if non-empty
+        if transaction.description:
+            transaction.description = EncryptionService.encrypt(
+                transaction.description)
+            transaction.is_encrypted = True
+            transaction.save(update_fields=['description', 'is_encrypted'])
+
+        # 2. Large transaction audit
+        threshold = getattr(
+            django_settings, 'LARGE_TRANSACTION_THRESHOLD', 10000)
+        if float(transaction.amount) >= threshold:
+            AuditService.log_large_transaction(
+                self.request.user, ip, transaction.amount, threshold,
+            )
+
+        # 3. PII warning audit (if serializer detected PII)
+        pii = getattr(serializer, '_pii_warnings', None)
+        if pii:
+            AuditService.log_pii_warning(
+                self.request.user, ip, [p['type'] for p in pii],
+            )
+
+        # 4. Background ML: anomaly scoring + auto-categorization
+        MLRetrainingService.auto_categorize_async(
+            self.request.user, transaction)
 
 
 class TransactionDetailView(generics.RetrieveUpdateDestroyAPIView):
@@ -178,36 +219,109 @@ def dashboard_view(request):
     return Response(summary, status=status.HTTP_200_OK)
 
 
+# @api_view(['GET'])
+# @permission_classes([IsAuthenticated])
+# @throttle_classes([ScopedRateThrottle])
+# def forecast_view(request):
+#     """
+#     Get ML-based expense forecast for the next month.
+
+#     GET /api/analytics/forecast/?months_back=12
+
+#     Returns: {
+#         "predicted_amount": 1250.50,
+#         "confidence_score": 0.85,
+#         "months_used": 8,
+#         "status": "success",
+#         "message": "Prediction based on 8 months of data"
+#     }
+#     """
+#     # Get optional parameter
+#     months_back = request.query_params.get('months_back', 12)
+#     months_back = int(months_back) if months_back else 12
+
+#     # Ensure valid range
+#     months_back = max(6, min(months_back, 24))  # Between 6 and 24 months
+
+#     # Get prediction
+#     prediction = MLForecastService.predict_next_month_expense(
+#         request.user, months_back
+#     )
+
+#     return Response(prediction, status=status.HTTP_200_OK)
+
+
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
-@throttle_classes([ScopedRateThrottle])
 def forecast_view(request):
     """
-    Get ML-based expense forecast for the next month.
-
-    GET /api/analytics/forecast/?months_back=12
-
-    Returns: {
-        "predicted_amount": 1250.50,
-        "confidence_score": 0.85,
-        "months_used": 8,
-        "status": "success",
-        "message": "Prediction based on 8 months of data"
-    }
+    Головний ендпоінт аналітики: Тренди + Монте-Карло.
     """
-    # Get optional parameter
-    months_back = request.query_params.get('months_back', 12)
-    months_back = int(months_back) if months_back else 12
+    try:
+        # 1. Розрахунок поточного балансу для симуляції
+        income = Transaction.objects.filter(
+            user=request.user, category__type='Income'
+        ).aggregate(total=Sum('amount'))['total'] or 0
 
-    # Ensure valid range
-    months_back = max(6, min(months_back, 24))  # Between 6 and 24 months
+        expenses = Transaction.objects.filter(
+            user=request.user, category__type='Expense'
+        ).aggregate(total=Sum('amount'))['total'] or 0
 
-    # Get prediction
-    prediction = MLForecastService.predict_next_month_expense(
-        request.user, months_back
-    )
+        current_balance = float(income - expenses)
 
-    return Response(prediction, status=status.HTTP_200_OK)
+        # 2. Виклик сервісу комбінованої аналітики
+        analysis = MLForecastService.get_comprehensive_analysis(
+            request.user, current_balance)
+
+        return Response(analysis, status=status.HTTP_200_OK)
+
+    except Exception as e:
+        return Response(
+            {"status": "error", "message": str(e)},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+# transactions/views.py
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def dashboard_view(request):
+    """
+    Отримує дані для дашборду: підсумки, баланс та розподіл за категоріями.
+    """
+    try:
+        from datetime import date
+
+        # 1. Отримуємо параметри з запиту або ставимо поточні за замовчуванням
+        year = request.query_params.get('year')
+        month = request.query_params.get('month')
+
+        today = date.today()
+        target_year = int(year) if year else today.year
+        target_month = int(month) if month else today.month
+
+        # 2. ВИПРАВЛЕННЯ: Передаємо всі 3 обов'язкові аргументи
+        summary = FinanceService.get_dashboard_summary(
+            request.user,
+            target_month,
+            target_year
+        )
+
+        # 3. Додаємо розподіл категорій (якщо сервіс його не включив)
+        category_distribution = FinanceService.get_category_distribution(
+            request.user, target_month, target_year
+        )
+        summary['category_distribution'] = category_distribution
+
+        return Response(summary, status=status.HTTP_200_OK)
+
+    except Exception as e:
+        print(f"Dashboard Error: {str(e)}")
+        return Response(
+            {"status": "error", "message": "Не вдалося отримати дані дашборду"},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
 
 
 @api_view(['GET'])
@@ -435,3 +549,74 @@ def ai_insights_view(request):
         'year': target_year,
         'month': target_month,
     }, status=status.HTTP_200_OK)
+
+
+# ========== New ML Analytics Views ==========
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def anomaly_detection_view(request):
+    """
+    Run Isolation Forest anomaly detection on the user's transactions.
+
+    GET /api/analytics/anomalies/
+    """
+    try:
+        result = AnomalyDetectionService.detect_anomalies(request.user)
+        return Response(result, status=status.HTTP_200_OK)
+    except Exception as e:
+        return Response(
+            {"status": "error", "message": str(e)},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def auto_categorize_view(request):
+    """
+    Predict the category for a given description.
+
+    POST /api/analytics/categorize/
+    Body: {"description": "Uber trip to airport"}
+    """
+    description = request.data.get('description', '')
+    if not description:
+        return Response(
+            {"error": "Description is required."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    result = AutoCategorizationService.predict_category(
+        request.user, description)
+    if result is None:
+        return Response(
+            {"status": "insufficient_data",
+                "message": "Not enough labelled transactions to train the model."},
+            status=status.HTTP_200_OK,
+        )
+    return Response(result, status=status.HTTP_200_OK)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def budget_alert_view(request):
+    """
+    Predictive budget alert: when will the user hit their monthly budget?
+
+    GET /api/analytics/budget-alert/
+    """
+    result = BudgetAlertService.get_budget_prediction(request.user)
+    return Response(result, status=status.HTTP_200_OK)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def health_score_view(request):
+    """
+    Financial health score (0-100) with grade and sub-score breakdown.
+
+    GET /api/analytics/health-score/
+    """
+    result = FinancialHealthService.calculate_health_score(request.user)
+    return Response(result, status=status.HTTP_200_OK)
