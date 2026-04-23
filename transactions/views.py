@@ -620,3 +620,51 @@ def health_score_view(request):
     """
     result = FinancialHealthService.calculate_health_score(request.user)
     return Response(result, status=status.HTTP_200_OK)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+@throttle_classes([ScopedRateThrottle])
+def financial_advisor_view(request):
+    """
+    AI Financial Advisor — RAG pipeline with privacy-preserving anonymization.
+
+    POST /api/analytics/advisor/
+    Body  : {"query": "What are my biggest expenses this month?"}
+
+    Responses:
+        200 {"status": "success",      "reply": "<LLM-generated advice>"}
+        200 {"status": "out_of_scope", "reply": "<polite refusal>"}
+        200 {"status": "no_data",      "reply": "<guidance to add transactions>"}
+        400 {"error": "A non-empty 'query' field is required."}
+        503 {"status": "error",        "reply": "<fallback message>"}
+
+    Security notes
+    ──────────────
+    • The view applies ScopedRateThrottle (see 'advisor' key in settings).
+    • The service layer enforces a 600-character query cap to limit
+      prompt-injection surface area.
+    • Raw transaction data is NEVER forwarded to the LLM; it passes through
+      AnonymizationService first (PII scrub, merchant abstraction, temporal
+      blurring, amount jitter).
+    """
+    from .services.advisor_service import FinancialAdvisorService
+
+    query: str = (request.data.get("query") or "").strip()
+    if not query:
+        return Response(
+            {"error": "A non-empty 'query' field is required."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    lookback_days: int = int(request.data.get("lookback_days", 60))
+    result = FinancialAdvisorService.get_advice(
+        request.user, query, lookback_days=lookback_days
+    )
+
+    http_status = (
+        status.HTTP_503_SERVICE_UNAVAILABLE
+        if result["status"] == "error"
+        else status.HTTP_200_OK
+    )
+    return Response(result, status=http_status)

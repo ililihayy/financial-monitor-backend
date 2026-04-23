@@ -148,8 +148,10 @@ REST_FRAMEWORK = {
         'rest_framework.throttling.ScopedRateThrottle',
     ],
     'DEFAULT_THROTTLE_RATES': {
-        'login': '5/minute',  # Rate limit for login attempts
+        'login': '5/minute',    # Rate limit for login attempts
         'forecast': '20/hour',  # Rate limit for ML prediction endpoint
+        # Rate limit for AI Financial Advisor (LLM calls)
+        'advisor': '10/hour',
         'default': '100/hour',
     },
 }
@@ -316,6 +318,19 @@ AXES_ENABLED = True
 # =============================================================================
 # Generate with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 FIELD_ENCRYPTION_KEY = env('FIELD_ENCRYPTION_KEY', default='')
+
+# =============================================================================
+# AI Financial Advisor (RAG pipeline)
+# =============================================================================
+# Gemini API key — required for the /api/analytics/advisor/ endpoint.
+# Generate at: https://aistudio.google.com/app/apikey
+# Set via environment variable: GOOGLE_API_KEY=AIza...
+GOOGLE_API_KEY = env('GOOGLE_API_KEY', default='')
+
+# LLM model used by FinancialAdvisorService.
+# "gemini-2.5-flash" offers the best cost/quality ratio for financial Q&A.
+# Override via: ADVISOR_LLM_MODEL=gemini-2.5-pro
+ADVISOR_LLM_MODEL = env('ADVISOR_LLM_MODEL', default='gemini-2.5-flash')
 
 # =============================================================================
 # Audit Logging
