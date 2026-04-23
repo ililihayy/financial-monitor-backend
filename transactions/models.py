@@ -174,3 +174,67 @@ class Transaction(models.Model):
     def __str__(self):
         """String representation of the transaction."""
         return f"{self.user.email} - {self.category.name} - {self.amount} ({self.date})"
+
+
+class AdvisorConversation(models.Model):
+    """
+    A named conversation thread between a user and the AI Financial Advisor.
+
+    The title is auto-generated from the first user message and can hold
+    up to 100 characters.  All messages in the thread are stored as related
+    AdvisorMessage instances.
+    """
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='advisor_conversations',
+        verbose_name='User',
+    )
+    title = models.CharField(
+        max_length=100,
+        verbose_name='Title',
+        help_text='Auto-generated from the first user message.',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-updated_at']
+        verbose_name = 'Advisor Conversation'
+        verbose_name_plural = 'Advisor Conversations'
+
+    def __str__(self) -> str:
+        return f"{self.user.email} — {self.title[:40]}"
+
+
+class AdvisorMessage(models.Model):
+    """
+    A single message turn (user or assistant) within an AdvisorConversation.
+    """
+
+    ROLE_USER = 'user'
+    ROLE_ASSISTANT = 'assistant'
+    ROLE_CHOICES = [
+        (ROLE_USER, 'User'),
+        (ROLE_ASSISTANT, 'Assistant'),
+    ]
+
+    conversation = models.ForeignKey(
+        AdvisorConversation,
+        on_delete=models.CASCADE,
+        related_name='messages',
+    )
+    role = models.CharField(max_length=10, choices=ROLE_CHOICES)
+    content = models.TextField()
+    # status mirrors the service response status; empty for user messages.
+    status = models.CharField(max_length=20, blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['created_at']
+        verbose_name = 'Advisor Message'
+        verbose_name_plural = 'Advisor Messages'
+
+    def __str__(self) -> str:
+        return f"[{self.role}] {self.content[:60]}"

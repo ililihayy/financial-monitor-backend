@@ -8,7 +8,7 @@ from rest_framework import serializers
 from django.core.validators import MinValueValidator
 from django.utils import timezone
 from datetime import datetime, date
-from .models import Category, Transaction
+from .models import Category, Transaction, AdvisorConversation, AdvisorMessage
 from accounts.services.pii_detection_service import PIIDetectionService
 
 
@@ -281,3 +281,30 @@ class TransactionListSerializer(serializers.ModelSerializer):
             'id', 'category', 'category_name', 'category_type',
             'amount', 'date', 'description', 'created_at'
         )
+
+
+# ── Advisor conversation serializers ─────────────────────────────────────────
+
+class AdvisorMessageSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AdvisorMessage
+        fields = ['id', 'role', 'content', 'status', 'created_at']
+
+
+class AdvisorConversationSerializer(serializers.ModelSerializer):
+    """Compact representation used in the conversations list."""
+    message_count = serializers.IntegerField(
+        source='messages.count', read_only=True)
+
+    class Meta:
+        model = AdvisorConversation
+        fields = ['id', 'title', 'created_at', 'updated_at', 'message_count']
+
+
+class AdvisorConversationDetailSerializer(serializers.ModelSerializer):
+    """Full representation including all messages, used for detail / continue views."""
+    messages = AdvisorMessageSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = AdvisorConversation
+        fields = ['id', 'title', 'created_at', 'updated_at', 'messages']

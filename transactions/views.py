@@ -12,9 +12,11 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.throttling import ScopedRateThrottle
 from django.db.models import Q
 from datetime import datetime
-from .models import Category, Transaction
+from .models import Category, Transaction, AdvisorConversation, AdvisorMessage
 from .serializers import (
-    CategorySerializer, TransactionSerializer, TransactionListSerializer
+    CategorySerializer, TransactionSerializer, TransactionListSerializer,
+    AdvisorConversationSerializer, AdvisorConversationDetailSerializer,
+    AdvisorMessageSerializer,
 )
 from .services import FinanceService, MLForecastService
 from rest_framework import status, generics
@@ -622,6 +624,40 @@ def health_score_view(request):
     return Response(result, status=status.HTTP_200_OK)
 
 
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def advisor_conversations_view(request):
+    """
+    GET /api/analytics/advisor/conversations/
+    Returns a list of the authenticated user's conversation threads,
+    ordered by most-recently updated first.
+    """
+    conversations = AdvisorConversation.objects.filter(user=request.user)
+    serializer = AdvisorConversationSerializer(conversations, many=True)
+    return Response(serializer.data)
+
+
+@api_view(['GET', 'DELETE'])
+@permission_classes([IsAuthenticated])
+def advisor_conversation_detail_view(request, pk: int):
+    """
+    GET    /api/analytics/advisor/conversations/<pk>/  — full conversation with messages
+    DELETE /api/analytics/advisor/conversations/<pk>/  — delete the conversation
+    """
+    try:
+        conversation = AdvisorConversation.objects.get(
+            pk=pk, user=request.user)
+    except AdvisorConversation.DoesNotExist:
+        return Response({"error": "Conversation not found."}, status=status.HTTP_404_NOT_FOUND)
+
+    if request.method == 'DELETE':
+        conversation.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    serializer = AdvisorConversationDetailSerializer(conversation)
+    return Response(serializer.data)
+
+
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 @throttle_classes([ScopedRateThrottle])
@@ -630,14 +666,17 @@ def financial_advisor_view(request):
     AI Financial Advisor — RAG pipeline with privacy-preserving anonymization.
 
     POST /api/analytics/advisor/
-    Body  : {"query": "What are my biggest expenses this month?"}
+    Body  : {
+        "query": "What are my biggest expenses this month?",
+        "conversation_id": 42   # optional — omit to start a new conversation
+    }
 
     Responses:
-        200 {"status": "success",      "reply": "<LLM-generated advice>"}
-        200 {"status": "out_of_scope", "reply": "<polite refusal>"}
-        200 {"status": "no_data",      "reply": "<guidance to add transactions>"}
+        200 {"status": "success",      "reply": "...", "conversation_id": 42}
+        200 {"status": "out_of_scope", "reply": "...", "conversation_id": 42}
+        200 {"status": "no_data",      "reply": "...", "conversation_id": 42}
         400 {"error": "A non-empty 'query' field is required."}
-        503 {"status": "error",        "reply": "<fallback message>"}
+        503 {"status": "error",        "reply": "...", "conversation_id": 42}
 
     Security notes
     ──────────────
@@ -657,10 +696,49 @@ def financial_advisor_view(request):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
+    # ── Resolve or create the conversation thread ────────────────────────────
+    conversation_id = request.data.get("conversation_id")
+    conversation: AdvisorConversation | None = None
+
+    if conversation_id:
+        try:
+            conversation = AdvisorConversation.objects.get(
+                pk=conversation_id, user=request.user
+            )
+        except AdvisorConversation.DoesNotExist:
+            return Response(
+                {"error": "Conversation not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+    # ── Call the RAG service ─────────────────────────────────────────────────
     lookback_days: int = int(request.data.get("lookback_days", 60))
     result = FinancialAdvisorService.get_advice(
         request.user, query, lookback_days=lookback_days
     )
+
+    # ── Persist messages (create conversation on first turn) ─────────────────
+    if conversation is None:
+        title = query[:97] + "..." if len(query) > 100 else query
+        conversation = AdvisorConversation.objects.create(
+            user=request.user, title=title
+        )
+
+    AdvisorMessage.objects.create(
+        conversation=conversation,
+        role=AdvisorMessage.ROLE_USER,
+        content=query,
+    )
+    AdvisorMessage.objects.create(
+        conversation=conversation,
+        role=AdvisorMessage.ROLE_ASSISTANT,
+        content=result["reply"],
+        status=result["status"],
+    )
+    # Touch updated_at so the list re-sorts correctly.
+    conversation.save(update_fields=["updated_at"])
+
+    result["conversation_id"] = conversation.pk
 
     http_status = (
         status.HTTP_503_SERVICE_UNAVAILABLE
