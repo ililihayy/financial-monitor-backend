@@ -1,12 +1,4 @@
-"""
-Static configuration for the FinancialAdvisorService RAG pipeline.
-
-Kept in a dedicated module so that vocabulary, limits, and intent patterns
-can be reviewed and tuned without touching any business logic.
-"""
 from __future__ import annotations
-
-# ── Intent-classifier vocabulary ─────────────────────────────────────────────
 
 # Finance-domain terms — a query must match at least one to be in-scope.
 FINANCE_ALLOWLIST: frozenset[str] = frozenset({
@@ -115,6 +107,11 @@ INTENT_PATTERNS: list[tuple[str, str, str]] = [
             "Propose 2–3 concrete, quantified tactics each backed by a specific "
             "figure from the data."
         ),
+    ),
+    (
+        "yearly_analysis", 
+        r"\byear\b|\bannual\b|\bрік\b|\bрічний\b", 
+        "Focus on long-term trends, comparing months and identifying seasonal spending spikes."
     ),
 ]
 
