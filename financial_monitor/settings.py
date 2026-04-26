@@ -145,12 +145,16 @@ REST_FRAMEWORK = {
         'rest_framework.renderers.JSONRenderer',
     ),
     'DEFAULT_THROTTLE_CLASSES': [
+        'rest_framework.throttling.AnonRateThrottle',
+        'rest_framework.throttling.UserRateThrottle',
         'rest_framework.throttling.ScopedRateThrottle',
     ],
     'DEFAULT_THROTTLE_RATES': {
-        'login': '5/minute',    # Rate limit for login attempts
-        'forecast': '20/hour',  # Rate limit for ML prediction endpoint
-        # Rate limit for AI Financial Advisor (LLM calls)
+        'anon': '100/day',
+        'user': '1000/hour',
+        
+        'login': '5/minute',
+        'forecast': '20/hour',
         'advisor': '10/hour',
         'default': '100/hour',
     },
