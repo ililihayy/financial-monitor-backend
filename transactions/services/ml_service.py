@@ -529,7 +529,7 @@ class MLRetrainingService:
             try:
                 AnomalyDetectionService.detect_anomalies(user)
                 logger.info(
-                    'Background anomaly retraining complete for user %s', user.email)
+                    'Background anomaly retraining complete for user %s', user.decrypted_email)
             except Exception as exc:
                 logger.error('Background anomaly retraining failed: %s', exc)
 

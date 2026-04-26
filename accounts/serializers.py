@@ -104,11 +104,17 @@ class UserSerializer(serializers.ModelSerializer):
     """
     Serializer for user profile information (read-only for sensitive data).
     """
+    email = serializers.ReadOnlyField(source='decrypted_email')
 
     class Meta:
         model = CustomUser
-        fields = ('id', 'email', 'nickname',
-                  'currency_preference', 'date_joined')
+        fields = (
+            'id',
+            'email',
+            'nickname',
+            'currency_preference',
+            'date_joined'
+        )
         read_only_fields = ('id', 'email', 'nickname', 'date_joined')
 
 

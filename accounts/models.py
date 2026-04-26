@@ -7,31 +7,38 @@ Uses email as the primary identifier with currency preference and registration t
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
 from django.db import models
 from django.utils import timezone
+from .services import EncryptionService
+import hashlib
+from django.conf import settings
 
 
 class CustomUserManager(BaseUserManager):
     """
     Custom user manager where email is the unique identifier.
-
-    Handles user creation with email as the primary field instead of username.
+    Uses a blind index (email_hash) for searching encrypted emails.
     """
+
+    def _generate_email_hash(self, email):
+        """
+        Generate a deterministic HMAC-like hash for searching.
+        Uses SECRET_KEY as a salt to prevent rainbow table attacks.
+        """
+        if not email:
+            return None
+        # Normalize and hash the email with the system's secret key
+        salt = getattr(settings, 'SECRET_KEY', 'default-salt')
+        return hashlib.sha256((email.lower() + salt).encode()).hexdigest()
 
     def create_user(self, email, password=None, **extra_fields):
         """
         Create and save a regular user with the given email and password.
-
-        Args:
-            email: User's email address (required)
-            password: User's password (optional for initial creation)
-            **extra_fields: Additional fields (currency_preference, etc.)
-
-        Returns:
-            CustomUser: The created user instance
+        The email will be encrypted and hashed in the model's save method.
         """
         if not email:
             raise ValueError('The Email field must be set')
 
         email = self.normalize_email(email)
+        # Note: Encryption/Hashing is handled by the CustomUser.save() method
         user = self.model(email=email, **extra_fields)
         user.set_password(password)
         user.save(using=self._db)
@@ -40,14 +47,6 @@ class CustomUserManager(BaseUserManager):
     def create_superuser(self, email, password=None, **extra_fields):
         """
         Create and save a superuser with the given email and password.
-
-        Args:
-            email: User's email address (required)
-            password: User's password (required)
-            **extra_fields: Additional fields
-
-        Returns:
-            CustomUser: The created superuser instance
         """
         extra_fields.setdefault('is_staff', True)
         extra_fields.setdefault('is_superuser', True)
@@ -59,20 +58,18 @@ class CustomUserManager(BaseUserManager):
 
         return self.create_user(email, password, **extra_fields)
 
+    def get_by_natural_key(self, email):
+        """
+        Overridden to support searching by the encrypted email's blind index.
+        """
+        return self.get(email_hash=self._generate_email_hash(email))
+
 
 class CustomUser(AbstractBaseUser, PermissionsMixin):
     """
-    Custom User model with email as the primary identifier.
-
-    Fields:
-        email: Primary identifier (unique)
-        currency_preference: User's preferred currency (default: 'USD')
-        date_joined: Timestamp of registration
-        is_staff: Boolean for admin access
-        is_active: Boolean for account status
+    Custom User model with encrypted email storage and a blind index for searching.
     """
 
-    # Currency choices (can be expanded)
     CURRENCY_CHOICES = [
         ('USD', 'US Dollar'),
         ('EUR', 'Euro'),
@@ -80,49 +77,38 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
         ('UAH', 'Ukrainian Hryvnia'),
     ]
 
-    email = models.EmailField(
+    # Email is stored as ciphertext, so we use TextField and remove unique=True
+    email = models.TextField(
+        verbose_name='Encrypted Email Address',
+        help_text='Stored in encrypted format (AES-128).'
+    )
+    # Blind index for searching and enforcing uniqueness
+    email_hash = models.CharField(
+        max_length=64,
         unique=True,
-        max_length=255,
-        verbose_name='Email Address',
-        help_text='Required. Email address is used as the primary identifier.'
+        db_index=True,
+        verbose_name='Email Hash'
     )
     nickname = models.CharField(
         max_length=50,
         unique=True,
         null=True,
         blank=True,
-        verbose_name='Nickname',
-        help_text='Display name for the user. Must be unique.'
+        verbose_name='Nickname'
     )
     currency_preference = models.CharField(
         max_length=3,
         choices=CURRENCY_CHOICES,
-        default='USD',
-        verbose_name='Currency Preference',
-        help_text='Preferred currency for displaying financial data.'
+        default='USD'
     )
-    date_joined = models.DateTimeField(
-        default=timezone.now,
-        verbose_name='Date Joined',
-        help_text='Timestamp when the user registered.'
-    )
-    is_staff = models.BooleanField(
-        default=False,
-        verbose_name='Staff Status',
-        help_text='Designates whether the user can log into the admin site.'
-    )
-    is_active = models.BooleanField(
-        default=True,
-        verbose_name='Active',
-        help_text='Designates whether this user should be treated as active.'
-    )
+    date_joined = models.DateTimeField(default=timezone.now)
+    is_staff = models.BooleanField(default=False)
+    is_active = models.BooleanField(default=True)
     monthly_budget = models.DecimalField(
         max_digits=12,
         decimal_places=2,
         null=True,
-        blank=True,
-        verbose_name='Monthly Budget',
-        help_text='Optional monthly spending limit for predictive budget alerts.'
+        blank=True
     )
 
     objects = CustomUserManager()
@@ -135,22 +121,49 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
         verbose_name_plural = 'Users'
         ordering = ['-date_joined']
 
+    def save(self, *args, **kwargs):
+        """
+        Encrypt email and generate blind index hash before saving.
+        """
+        if self.email and not self.email.startswith('gAAAA'):
+            clean_email = self.email.lower().strip()
+            # Generate deterministic hash for searching
+            salt = getattr(settings, 'SECRET_KEY', 'default-salt')
+            self.email_hash = hashlib.sha256(
+                (clean_email + salt).encode()).hexdigest()
+            # Encrypt the actual email value
+            self.email = EncryptionService.encrypt(clean_email)
+
+        super().save(*args, **kwargs)
+
+    @property
+    def decrypted_email(self):
+        """
+        Helper property to get the plaintext email.
+        """
+        return EncryptionService.decrypt(self.email)
+
     def __str__(self):
-        """String representation of the user."""
-        return self.email
+        """Return decrypted email for readability in admin/logs."""
+        return self.decrypted_email
 
 
 class PasswordResetOTP(models.Model):
     """
     Model for storing password reset OTP codes.
-
-    Stores 6-digit codes sent via email for password reset functionality.
-    Codes expire after 10 minutes and are invalidated after successful use.
+    Uses encrypted email storage and a blind index for searching.
     """
 
-    email = models.EmailField(
-        verbose_name='Email Address',
-        help_text='Email address of the user requesting password reset.'
+    # Email is stored as ciphertext
+    email = models.TextField(
+        verbose_name='Encrypted Email Address',
+        help_text='Encrypted email address of the user requesting password reset.'
+    )
+    # Blind index for searching (SHA-256)
+    email_hash = models.CharField(
+        max_length=64,
+        db_index=True,
+        verbose_name='Email Hash'
     )
     code = models.CharField(
         max_length=6,
@@ -159,23 +172,19 @@ class PasswordResetOTP(models.Model):
     )
     created_at = models.DateTimeField(
         auto_now_add=True,
-        verbose_name='Created At',
-        help_text='Timestamp when the OTP code was generated.'
+        verbose_name='Created At'
     )
     expires_at = models.DateTimeField(
-        verbose_name='Expires At',
-        help_text='Timestamp when the OTP code expires (10 minutes after creation).'
+        verbose_name='Expires At'
     )
     used = models.BooleanField(
         default=False,
-        verbose_name='Used',
-        help_text='Whether this OTP code has been used for password reset.'
+        verbose_name='Used'
     )
     used_at = models.DateTimeField(
         null=True,
         blank=True,
-        verbose_name='Used At',
-        help_text='Timestamp when the OTP code was used.'
+        verbose_name='Used At'
     )
 
     class Meta:
@@ -183,27 +192,43 @@ class PasswordResetOTP(models.Model):
         verbose_name_plural = 'Password Reset OTPs'
         ordering = ['-created_at']
         indexes = [
-            models.Index(fields=['email', 'code']),
+            # Search by hash + code instead of raw email
+            models.Index(fields=['email_hash', 'code']),
             models.Index(fields=['expires_at']),
         ]
 
+    def save(self, *args, **kwargs):
+        """
+        Encrypt email and generate blind index hash before saving.
+        """
+        if self.email and not self.email.startswith('gAAAA'):
+            clean_email = self.email.lower().strip()
+            # Generate deterministic hash for searching
+            salt = getattr(settings, 'SECRET_KEY', 'default-salt')
+            self.email_hash = hashlib.sha256(
+                (clean_email + salt).encode()).hexdigest()
+            # Encrypt the actual email value
+            self.email = EncryptionService.encrypt(clean_email)
+
+        super().save(*args, **kwargs)
+
+    @property
+    def decrypted_email(self):
+        """
+        Helper property to get the plaintext email.
+        """
+        return EncryptionService.decrypt(self.email)
+
     def __str__(self):
-        """String representation of the OTP."""
-        return f"OTP for {self.email} - {self.code}"
+        """String representation of the OTP using the decrypted email."""
+        return f"OTP for {self.decrypted_email} - {self.code}"
 
     def is_valid(self):
-        """
-        Check if the OTP code is still valid (not used and not expired).
-
-        Returns:
-            bool: True if the code is valid, False otherwise
-        """
-        from django.utils import timezone
+        """Check if the OTP code is still valid (not used and not expired)."""
         return not self.used and timezone.now() < self.expires_at
 
     def mark_as_used(self):
         """Mark this OTP code as used."""
-        from django.utils import timezone
         self.used = True
         self.used_at = timezone.now()
         self.save(update_fields=['used', 'used_at'])
