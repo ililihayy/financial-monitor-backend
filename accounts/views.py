@@ -269,13 +269,22 @@ def google_auth_view(request):
             )
 
         # Get or create user
-        user, created = CustomUser.objects.get_or_create(
-            email=google_email.lower(),
-            defaults={
-                'currency_preference': 'USD',
-                'is_active': True,
-            }
-        )
+        email_hash = CustomUser.objects._generate_email_hash(google_email)
+
+        # Шукаємо користувача за хешем
+        user = CustomUser.objects.filter(email_hash=email_hash).first()
+        created = False
+
+        if not user:
+            # Якщо користувача немає, створюємо його.
+            # Модель сама зашифрує email у методі save()
+            user = CustomUser.objects.create(
+                email=google_email,
+                nickname=idinfo.get('name', f"user_{email_hash[:8]}"),
+                currency_preference='USD',
+                is_active=True
+            )
+            created = True
 
         # Generate JWT tokens
         refresh = RefreshToken.for_user(user)

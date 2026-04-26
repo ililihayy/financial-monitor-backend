@@ -30,6 +30,10 @@ from .services import (
     AnomalyDetectionService, AutoCategorizationService,
     BudgetAlertService, FinancialHealthService, MLRetrainingService,
 )
+from django.core.cache import cache
+from django.utils.timezone import now
+from rest_framework.response import Response
+from rest_framework import status
 
 
 # ========== Category Views ==========
@@ -663,29 +667,7 @@ def advisor_conversation_detail_view(request, pk: int):
 @throttle_classes([ScopedRateThrottle])
 def financial_advisor_view(request):
     """
-    AI Financial Advisor — RAG pipeline with privacy-preserving anonymization.
-
-    POST /api/analytics/advisor/
-    Body  : {
-        "query": "What are my biggest expenses this month?",
-        "conversation_id": 42   # optional — omit to start a new conversation
-    }
-
-    Responses:
-        200 {"status": "success",      "reply": "...", "conversation_id": 42}
-        200 {"status": "out_of_scope", "reply": "...", "conversation_id": 42}
-        200 {"status": "no_data",      "reply": "...", "conversation_id": 42}
-        400 {"error": "A non-empty 'query' field is required."}
-        503 {"status": "error",        "reply": "...", "conversation_id": 42}
-
-    Security notes
-    ──────────────
-    • The view applies ScopedRateThrottle (see 'advisor' key in settings).
-    • The service layer enforces a 600-character query cap to limit
-      prompt-injection surface area.
-    • Raw transaction data is NEVER forwarded to the LLM; it passes through
-      AnonymizationService first (PII scrub, merchant abstraction, temporal
-      blurring, amount jitter).
+    AI Financial Advisor — RAG pipeline with daily usage limits and persistence.
     """
     from .services.advisor_service import FinancialAdvisorService
 
@@ -696,9 +678,25 @@ def financial_advisor_view(request):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    # ── Resolve or create the conversation thread ────────────────────────────
+    # ── 1. Перевірка денного ліміту (7 запитів) ──────────────────────────────
+    user_id = request.user.id
+    today = now().date()
+    limit_key = f"adv_limit_{user_id}_{today}"
+    daily_limit = 7
+
+    current_usage = cache.get(limit_key, 0)
+
+    if current_usage >= daily_limit:
+        return Response({
+            "status": "limit_reached",
+            "reply": "You have reached your request limit for today (7/7). Come back tomorrow!",
+            "usage_tracker": f"{current_usage}/{daily_limit}",
+            "conversation_id": request.data.get("conversation_id")
+        }, status=status.HTTP_200_OK)
+
+    # ── 2. Пошук або створення треду бесіди ──────────────────────────────────
     conversation_id = request.data.get("conversation_id")
-    conversation: AdvisorConversation | None = None
+    conversation = None
 
     if conversation_id:
         try:
@@ -711,13 +709,18 @@ def financial_advisor_view(request):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-    # ── Call the RAG service ─────────────────────────────────────────────────
+    # ── 3. Виклик RAG сервісу ────────────────────────────────────────────────
     lookback_days: int = int(request.data.get("lookback_days", 60))
     result = FinancialAdvisorService.get_advice(
         request.user, query, lookback_days=lookback_days
     )
 
-    # ── Persist messages (create conversation on first turn) ─────────────────
+    if result["status"] in ["success", "out_of_scope"]:
+        current_usage += 1
+        cache.set(limit_key, current_usage, timeout=86400)
+
+    result["usage_tracker"] = f"{current_usage}/{daily_limit}"
+
     if conversation is None:
         title = query[:97] + "..." if len(query) > 100 else query
         conversation = AdvisorConversation.objects.create(
@@ -735,9 +738,8 @@ def financial_advisor_view(request):
         content=result["reply"],
         status=result["status"],
     )
-    # Touch updated_at so the list re-sorts correctly.
-    conversation.save(update_fields=["updated_at"])
 
+    conversation.save(update_fields=["updated_at"])
     result["conversation_id"] = conversation.pk
 
     http_status = (
@@ -745,4 +747,5 @@ def financial_advisor_view(request):
         if result["status"] == "error"
         else status.HTTP_200_OK
     )
+
     return Response(result, status=http_status)

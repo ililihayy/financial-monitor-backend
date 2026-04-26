@@ -379,3 +379,12 @@ CONTENT_SECURITY_POLICY = {
         ),
     }
 }
+
+ADVISOR_DAILY_LIMIT = 7
+
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.db.DatabaseCache',
+        'LOCATION': 'my_cache_table',
+    }
+}

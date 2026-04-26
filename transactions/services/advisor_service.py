@@ -3,6 +3,8 @@ import re
 from datetime import date, timedelta
 
 from django.conf import settings
+from django.core.cache import cache
+from datetime import date
 
 from .advisor_constants import (
     FINANCE_ALLOWLIST,
@@ -71,6 +73,19 @@ class FinancialAdvisorService:
         # Hard-limit query length before any further processing.
         user_query = user_query.strip()[:MAX_QUERY_LEN]
 
+        today = date.today().isoformat()
+        cache_key = f"adv_limit_{user.pk}_{today}"
+        usage_count = cache.get(cache_key, 0)
+        daily_limit = getattr(settings, "ADVISOR_DAILY_LIMIT", 7)
+
+        if usage_count >= daily_limit:
+            logger.warning("Advisor limit reached for user %s", user.pk)
+            return {
+                "status": "limit_reached",
+                "reply": f"You have reached your daily request limit ({usage_count}/{daily_limit}). Try again tomorrow!",
+                "usage_tracker": f"{usage_count}/{daily_limit}"
+            }
+
         # ── Stage ①: Intent guardrail ─────────────────────────────────────────
         if not cls._is_finance_query(user_query):
             logger.info(
@@ -123,6 +138,8 @@ class FinancialAdvisorService:
         # ── Stage ⑤: LLM call ────────────────────────────────────────────────
         try:
             reply = cls._call_llm(system_prompt, user_query)
+            new_usage = usage_count + 1
+            cache.set(cache_key, new_usage, timeout=86400)
         except Exception as exc:
             logger.error(
                 "FinancialAdvisorService: LLM call failed "
