@@ -75,12 +75,13 @@ def register_view(request):
 @throttle_classes([ScopedRateThrottle])
 def login_view(request):
     """
-    Login user and return JWT tokens.
+    Login user and return JWT tokens after 2FA verification.
 
     POST /api/auth/login/
     Body: {
         "email": "user@example.com",
-        "password": "securepassword123"
+        "password": "securepassword123",
+        "otp_token": "123456"  # Required after password verification
     }
 
     Returns: {
@@ -91,28 +92,30 @@ def login_view(request):
         }
     }
     """
-    serializer = LoginSerializer(data=request.data)
+    serializer = LoginSerializer(
+        data=request.data, context={'request': request})
 
     if serializer.is_valid():
         user = serializer.validated_data['user']
 
-        # 2FA check: if enabled, require totp_token in payload
-        if TOTPService.is_2fa_enabled(user):
-            totp_token = request.data.get('totp_token')
-            if not totp_token:
-                return Response(
-                    {'error': '2FA token is required.', '2fa_required': True},
-                    status=status.HTTP_403_FORBIDDEN,
-                )
-            if not TOTPService.verify_token(user, totp_token):
-                return Response(
-                    {'error': 'Invalid 2FA token.', '2fa_required': True},
-                    status=status.HTTP_403_FORBIDDEN,
-                )
+        # Verify password first
+        if not user.check_password(request.data.get('password')):
+            return Response({'error': 'Invalid credentials.'}, status=status.HTTP_401_UNAUTHORIZED)
+
+        # Trigger OTP
+        device = user.totpdevice_set.first()
+        if not device:
+            return Response({'error': '2FA device not found.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        device.generate_challenge()
+
+        # Validate OTP
+        otp_token = request.data.get('otp_token')
+        if not otp_token or not device.verify_token(otp_token):
+            return Response({'error': 'Invalid or missing OTP token.', '2fa_required': True}, status=status.HTTP_403_FORBIDDEN)
 
         # Generate JWT tokens
         refresh = RefreshToken.for_user(user)
-
         AuditService.log_login_success(user, _get_client_ip(request))
 
         return Response({

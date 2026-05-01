@@ -150,9 +150,9 @@ class AnomalyDetectionService:
             if is_anomaly:
                 flagged.append({
                     'transaction_id': txn.id,
-                    'amount': float(txn.amount),
+                    'amount': float(txn.decrypted_amount),
                     'date': str(txn.date),
-                    'category': txn.category.name,
+                    'category': txn.category.decrypted_name,
                     'anomaly_score': round(float(score), 4),
                 })
 
@@ -208,7 +208,7 @@ class AnomalyDetectionService:
         for txn in transactions:
             created_hour = txn.created_at.hour if txn.created_at else 12
             rows.append([
-                float(txn.amount),
+                float(txn.decrypted_amount),
                 txn.date.weekday(),
                 txn.date.day,
                 created_hour,

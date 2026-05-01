@@ -143,9 +143,9 @@ class TransactionListCreateView(generics.ListCreateAPIView):
         # 2. Large transaction audit
         threshold = getattr(
             django_settings, 'LARGE_TRANSACTION_THRESHOLD', 10000)
-        if float(transaction.amount) >= threshold:
+        if float(transaction.decrypted_amount) >= threshold:
             AuditService.log_large_transaction(
-                self.request.user, ip, transaction.amount, threshold,
+                self.request.user, ip, transaction.decrypted_amount, threshold,
             )
 
         # 3. PII warning audit (if serializer detected PII)

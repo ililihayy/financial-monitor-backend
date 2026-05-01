@@ -109,6 +109,12 @@ class CategorySerializer(serializers.ModelSerializer):
 
         return attrs
 
+    def to_representation(self, instance):
+        """Дешифруємо назву категорії перед відправкою на фронтенд."""
+        representation = super().to_representation(instance)
+        representation['name'] = instance.decrypted_name # Використовуємо властивість з моделі
+        return representation
+
 
 class TransactionSerializer(serializers.ModelSerializer):
     """
@@ -122,9 +128,8 @@ class TransactionSerializer(serializers.ModelSerializer):
         help_text='Owner of the transaction (automatically set from authenticated user).'
     )
     category_name = serializers.CharField(
-        source='category.name',
-        read_only=True,
-        help_text='Name of the associated category (read-only).'
+        source='category.decrypted_name', 
+        read_only=True
     )
     category_type = serializers.CharField(
         source='category.type',
@@ -132,7 +137,7 @@ class TransactionSerializer(serializers.ModelSerializer):
         help_text='Type of the associated category (read-only).'
     )
     predicted_category_name = serializers.CharField(
-        source='predicted_category.name',
+        source='predicted_category.decrypted_name',
         read_only=True,
         default=None,
         help_text='ML-predicted category name (read-only).'
@@ -140,6 +145,11 @@ class TransactionSerializer(serializers.ModelSerializer):
     pii_warnings = serializers.SerializerMethodField(
         read_only=True,
         help_text='PII warnings detected in description (read-only).'
+    )
+    description = serializers.CharField(
+        required=False, 
+        allow_blank=True,
+        help_text='Transaction description (will be encrypted on save).'
     )
 
     class Meta:
@@ -244,6 +254,18 @@ class TransactionSerializer(serializers.ModelSerializer):
             )
 
         return value
+    
+    def to_representation(self, instance):
+        """Дешифруємо всі чутливі поля транзакції."""
+        representation = super().to_representation(instance)
+        
+        # 1. Дешифруємо суму та перетворюємо її на число для фронтенду
+        representation['amount'] = float(instance.decrypted_amount)
+        
+        # 2. Дешифруємо опис
+        representation['description'] = instance.decrypted_description
+        
+        return representation
 
     def validate_description(self, value):
         """
@@ -271,7 +293,7 @@ class TransactionListSerializer(serializers.ModelSerializer):
     """
 
     category_name = serializers.CharField(
-        source='category.name', read_only=True)
+        source='category.decrypted_name', read_only=True)
     category_type = serializers.CharField(
         source='category.type', read_only=True)
 
@@ -281,6 +303,12 @@ class TransactionListSerializer(serializers.ModelSerializer):
             'id', 'category', 'category_name', 'category_type',
             'amount', 'date', 'description', 'created_at'
         )
+
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+        representation['amount'] = float(instance.decrypted_amount)
+        representation['description'] = instance.decrypted_description
+        return representation
 
 
 # ── Advisor conversation serializers ─────────────────────────────────────────

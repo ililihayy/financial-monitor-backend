@@ -7,6 +7,7 @@ with HMAC-based checksums for tamper detection.
 
 import logging
 from django.utils.deprecation import MiddlewareMixin
+from django.http import JsonResponse
 
 logger = logging.getLogger('security')
 
@@ -80,3 +81,18 @@ class SecurityLoggingMiddleware(MiddlewareMixin):
         else:
             ip = request.META.get('REMOTE_ADDR')
         return ip
+
+
+class Enforce2FAMiddleware(MiddlewareMixin):
+    """
+    Middleware to enforce mandatory 2FA for all authenticated users.
+    If the user is authenticated but not verified, return a 403 response.
+    """
+
+    def process_request(self, request):
+        if request.user.is_authenticated and not request.user.is_verified():
+            return JsonResponse(
+                {'error': '2FA_REQUIRED',
+                    'message': 'Two-factor authentication is required.'},
+                status=403
+            )

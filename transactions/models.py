@@ -23,10 +23,9 @@ class Category(models.Model):
         ('Expense', 'Expense'),
     ]
 
-    name = models.CharField(
-        max_length=100,
+    name = models.TextField(
         verbose_name='Category Name',
-        help_text='Name of the category (e.g., "Food", "Salary")'
+        help_text='Name of the category (Encrypted at rest)'
     )
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -72,10 +71,21 @@ class Category(models.Model):
             )
         ]
 
+    @property
+    def decrypted_name(self):
+        """Розшифровує назву для відображення."""
+        from accounts.services.encryption_service import EncryptionService
+        if self.name and self.name.startswith('gAAAA'):
+            try:
+                return EncryptionService.decrypt(self.name)
+            except Exception:
+                return "[Decryption Error]"
+        return self.name
+
     def __str__(self):
         """String representation of the category."""
-        owner = self.user.email if self.user else 'System'
-        return f"{self.name} ({self.type}) - {owner}"
+        owner = self.user.decrypted_email if self.user else 'System'
+        return f"{self.decrypted_name} ({self.type}) - {owner}"
 
     def delete(self, *args, **kwargs):
         """
@@ -114,12 +124,9 @@ class Transaction(models.Model):
         verbose_name='Category',
         help_text='Category this transaction belongs to.'
     )
-    amount = models.DecimalField(
-        max_digits=12,
-        decimal_places=2,
-        validators=[MinValueValidator(0)],
+    amount = models.TextField(
         verbose_name='Amount',
-        help_text='Transaction amount (must be positive).'
+        help_text='Transaction amount (Encrypted at rest).'
     )
     date = models.DateField(
         verbose_name='Transaction Date',
@@ -162,6 +169,46 @@ class Transaction(models.Model):
         help_text='Timestamp when the transaction was created in the system.'
     )
 
+    @property
+    def decrypted_amount(self):
+        """Дешифрує суму та повертає її як Decimal."""
+        from accounts.services.encryption_service import EncryptionService
+        from decimal import Decimal
+        if self.amount and self.amount.startswith('gAAAA'):
+            try:
+                dec_str = EncryptionService.decrypt(self.amount)
+                return Decimal(dec_str)
+            except Exception:
+                return Decimal('0.00')
+        return Decimal(self.amount) if self.amount else Decimal('0.00')
+
+    @property
+    def decrypted_description(self):
+        """Розшифровує опис для відображення в інтерфейсі."""
+        from accounts.services.encryption_service import EncryptionService
+        if not self.description:
+            return ""
+        try:
+            return EncryptionService.decrypt(self.description)
+        except Exception:
+            return "[Error: Decryption Failed]"
+
+    def save(self, *args, **kwargs):
+        """Шифрування всіх полів перед записом у БД."""
+        from accounts.services.encryption_service import EncryptionService
+        
+        # Шифруємо суму (перетворюємо Decimal у рядок перед шифруванням)
+        amount_str = str(self.amount)
+        if not amount_str.startswith('gAAAA'):
+            self.amount = EncryptionService.encrypt(amount_str)
+
+        # Шифруємо опис
+        if self.description and not self.description.startswith('gAAAA'):
+            self.description = EncryptionService.encrypt(self.description)
+            
+        self.is_encrypted = True
+        super().save(*args, **kwargs)
+
     class Meta:
         verbose_name = 'Transaction'
         verbose_name_plural = 'Transactions'
@@ -173,7 +220,7 @@ class Transaction(models.Model):
 
     def __str__(self):
         """String representation of the transaction."""
-        return f"{self.user.email} - {self.category.name} - {self.amount} ({self.date})"
+        return f"{self.user.decrypted_email} - {self.category.decrypted_name} - {self.decrypted_amount} ({self.date})"
 
 
 class AdvisorConversation(models.Model):
