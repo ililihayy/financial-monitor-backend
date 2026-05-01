@@ -133,13 +133,6 @@ class TransactionListCreateView(generics.ListCreateAPIView):
         transaction = serializer.save(user=self.request.user)
         ip = self.request.META.get('REMOTE_ADDR', 'unknown')
 
-        # 1. Encrypt description if non-empty
-        if transaction.description:
-            transaction.description = EncryptionService.encrypt(
-                transaction.description)
-            transaction.is_encrypted = True
-            transaction.save(update_fields=['description', 'is_encrypted'])
-
         # 2. Large transaction audit
         threshold = getattr(
             django_settings, 'LARGE_TRANSACTION_THRESHOLD', 10000)
@@ -260,33 +253,28 @@ def dashboard_view(request):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def forecast_view(request):
-    """
-    Головний ендпоінт аналітики: Тренди + Монте-Карло.
-    """
     try:
-        # 1. Розрахунок поточного балансу для симуляції
-        income = Transaction.objects.filter(
+        # 1. Отримуємо транзакції замість виконання агрегації в БД
+        income_txs = Transaction.objects.filter(
             user=request.user, category__type='Income'
-        ).aggregate(total=Sum('amount'))['total'] or 0
+        )
+        # Підсумовуємо в Python, використовуючи decrypted_amount
+        income = sum(tx.decrypted_amount for tx in income_txs)
 
-        expenses = Transaction.objects.filter(
+        expense_txs = Transaction.objects.filter(
             user=request.user, category__type='Expense'
-        ).aggregate(total=Sum('amount'))['total'] or 0
+        )
+        expenses = sum(tx.decrypted_amount for tx in expense_txs)
 
         current_balance = float(income - expenses)
 
-        # 2. Виклик сервісу комбінованої аналітики
+        # 2. Виклик сервісу аналітики
         analysis = MLForecastService.get_comprehensive_analysis(
             request.user, current_balance)
 
         return Response(analysis, status=status.HTTP_200_OK)
-
     except Exception as e:
-        return Response(
-            {"status": "error", "message": str(e)},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
-
+        return Response({"status": "error", "message": str(e)}, status=500)
 # transactions/views.py
 
 
@@ -366,84 +354,44 @@ def balance_view(request):
     }, status=status.HTTP_200_OK)
 
 
+# transactions/views.py
+
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def trend_view(request):
-    """
-    Get monthly trend data for analytics visualization.
-
-    GET /api/analytics/trend/?months_back=12
-
-    Returns: [
-        {
-            "month": "2024-01",
-            "income": 5000.00,
-            "expenses": 3500.00,
-            "balance": 1500.00
-        },
-        ...
-    ]
-    """
-    from transactions.models import Transaction, Category
-    from django.db.models import Sum, Q
-    from django.db.models.functions import TruncMonth
-    from django.db.models import DecimalField
-    from decimal import Decimal
+    from collections import defaultdict
     from datetime import date, timedelta
-
-    # Get optional parameter
-    months_back = request.query_params.get('months_back', 12)
-    months_back = int(months_back) if months_back else 12
-    months_back = max(6, min(months_back, 24))  # Between 6 and 24 months
-
-    # Calculate date range
+    
+    months_back = int(request.query_params.get('months_back', 12))
     end_date = date.today()
     start_date = end_date - timedelta(days=months_back * 31)
 
-    # Get monthly income
-    monthly_income = Transaction.objects.filter(
+    # Отримуємо транзакції без агрегації в БД
+    transactions = Transaction.objects.filter(
         user=request.user,
-        category__type='Income',
         date__gte=start_date,
         date__lte=end_date
-    ).annotate(
-        month=TruncMonth('date')
-    ).values('month').annotate(
-        total=Sum('amount', output_field=DecimalField())
-    ).order_by('month')
+    ).select_related('category')
 
-    # Get monthly expenses
-    monthly_expenses = Transaction.objects.filter(
-        user=request.user,
-        category__type='Expense',
-        date__gte=start_date,
-        date__lte=end_date
-    ).annotate(
-        month=TruncMonth('date')
-    ).values('month').annotate(
-        total=Sum('amount', output_field=DecimalField())
-    ).order_by('month')
+    # Групуємо по місяцях у Python[cite: 6]
+    monthly_data = defaultdict(lambda: {'income': 0.0, 'expenses': 0.0})
+    
+    for tx in transactions:
+        month_key = tx.date.strftime('%Y-%m')
+        amount = float(tx.decrypted_amount)
+        if tx.category.type == 'Income':
+            monthly_data[month_key]['income'] += amount
+        else:
+            monthly_data[month_key]['expenses'] += amount
 
-    # Create dictionaries for quick lookup
-    income_dict = {item['month']: float(
-        item['total'] or Decimal('0.00')) for item in monthly_income}
-    expenses_dict = {item['month']: float(
-        item['total'] or Decimal('0.00')) for item in monthly_expenses}
-
-    # Get all unique months
-    all_months = sorted(
-        set(list(income_dict.keys()) + list(expenses_dict.keys())))
-
-    # Build response
     result = []
-    for month in all_months:
-        income = income_dict.get(month, 0.0)
-        expenses = expenses_dict.get(month, 0.0)
+    for month_key in sorted(monthly_data.keys()):
+        data = monthly_data[month_key]
         result.append({
-            'month': month.strftime('%Y-%m'),
-            'income': income,
-            'expenses': expenses,
-            'balance': income - expenses
+            'month': month_key,
+            'income': data['income'],
+            'expenses': data['expenses'],
+            'balance': data['income'] - data['expenses']
         })
 
     return Response(result, status=status.HTTP_200_OK)

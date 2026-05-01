@@ -224,75 +224,59 @@ class FinancialAdvisorService:
             cutoff = today - timedelta(days=n * 30)
             return cutoff, f"Last {n} month{'s' if n > 1 else ''}"
 
-        cutoff = today - timedelta(days=30)
-        return cutoff, today.strftime("%B %Y")
+        cutoff = today - timedelta(days=60)
+        # Робимо гарний підпис, наприклад: "March - May 2026"
+        start_month = cutoff.strftime("%B")
+        end_month = today.strftime("%B %Y")
+        period_label = f"Last 2 Months ({start_month} - {end_month})"
+        
+        return cutoff, period_label
 
     @classmethod
     def _retrieve_transactions(cls, user, since_date: "date") -> dict:
-        """
-        Return pre-aggregated category totals plus a small raw sample.
-
-        Keys
-        ----
-        ``aggregates``  — list of per-category dicts with SQL-computed
-                          totals (Sum/Count), sorted by total_amount desc.
-                          Injected directly into the prompt as a pre-computed
-                          table so the LLM never performs arithmetic on raw
-                          high-value figures — the primary trigger for
-                          Gemini's financial-advice safety filter.
-        ``samples``     — up to 15 most-recent raw transaction dicts passed
-                          through the anonymizer for temporal/description
-                          context only.
-        """
-        from django.db.models import Sum, Count
         from transactions.models import Transaction
+        from collections import defaultdict
 
         currency = getattr(user, "currency", "USD") or "USD"
-
-        base_qs = (
-            Transaction.objects
-            .select_related("category")
-            .filter(user=user, date__gte=since_date)
+        # Отримуємо всі транзакції об'єктами, щоб спрацювало дешифрування[cite: 4, 8]
+        base_qs = Transaction.objects.select_related("category").filter(
+            user=user, date__gte=since_date
         )
 
-        # ── SQL-level aggregation — exact totals, zero LLM math ──────────────
-        agg_rows = (
-            base_qs
-            .values("category__name", "category__type")
-            .annotate(
-                total_amount=Sum("amount"),
-                tx_count=Count("id"),
-            )
-            .order_by("-total_amount")
-        )
+        # --- 1. Агрегація в Python (замість SQL SUM) ---
+        agg_map = defaultdict(lambda: {"count": 0, "total": 0.0, "type": "Expense"})
+        
+        all_txns = list(base_qs)
+        for tx in all_txns:
+            cat_name = tx.category.decrypted_name
+            agg_map[cat_name]["total"] += float(tx.decrypted_amount)
+            agg_map[cat_name]["count"] += 1
+            agg_map[cat_name]["type"] = tx.category.type
+
         aggregates = [
             {
-                "category_name":    r["category__name"] or "General",
-                "transaction_type": r["category__type"] or "Expense",
-                "total_amount":     float(r["total_amount"] or 0),
-                "tx_count":         r["tx_count"],
-                "currency":         currency,
+                "category_name": name,
+                "transaction_type": data["type"],
+                "total_amount": data["total"],
+                "tx_count": data["count"],
+                "currency": currency,
             }
-            for r in agg_rows
+            for name, data in agg_map.items()
         ]
+        # Сортуємо за сумою[cite: 8]
+        aggregates.sort(key=lambda x: x["total_amount"], reverse=True)
 
-        # ── Sample slice for anonymised temporal context (≤15 rows) ──────────
-        sample_rows = (
-            base_qs
-            .order_by("-date")
-            .values("amount", "date", "description", "category__name", "category__type")
-            [:15]
-        )
+        # --- 2. Вибірка прикладів (Samples) ---
         samples = [
             {
-                "amount":           float(r["amount"] or 0),
-                "date":             r["date"],
-                "description":      r["description"] or "",
-                "category_name":    r["category__name"] or "General",
-                "transaction_type": r["category__type"] or "Expense",
-                "currency":         currency,
+                "amount": float(tx.decrypted_amount),
+                "date": tx.date,
+                "description": tx.decrypted_description,
+                "category_name": tx.category.decrypted_name,
+                "transaction_type": tx.category.type,
+                "currency": currency,
             }
-            for r in sample_rows
+            for tx in all_txns[:15]
         ]
 
         return {"aggregates": aggregates, "samples": samples}

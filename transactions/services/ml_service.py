@@ -38,15 +38,19 @@ class MLForecastService:
         today = date.today()
 
         six_months_ago = today - timedelta(days=365)
-        monthly_data = Transaction.objects.filter(
-            user=user,
-            category__type='Expense',
-            date__gte=six_months_ago,
-        ).annotate(
-            m_date=TruncMonth('date'),
-        ).values('m_date').annotate(
-            total=Sum('amount'),
-        ).order_by('m_date')
+        # Замість .annotate(total=Sum('amount')) робимо так:
+        raw_txs = Transaction.objects.filter(
+            user=user, category__type='Expense', date__gte=six_months_ago
+        ).select_related('category')
+
+        temp_data = {}
+        for tx in raw_txs:
+            m_date = tx.date.replace(day=1)
+            temp_data[m_date] = temp_data.get(
+                m_date, 0) + float(tx.decrypted_amount)
+
+        monthly_data = [{"m_date": d, "total": v}
+                        for d, v in sorted(temp_data.items())]
 
         if len(monthly_data) < 3:
             return {"status": "insufficient_data", "message": "Need at least 3 months of history."}
@@ -253,7 +257,7 @@ class AutoCategorizationService:
         if len(training_data) < cls.MIN_TRAINING_SAMPLES:
             return None
 
-        descriptions = [t.description for t in training_data]
+        descriptions = [t.decrypted_description for t in training_data]
         labels = [t.category_id for t in training_data]
 
         # TF-IDF vectorisation
@@ -280,7 +284,7 @@ class AutoCategorizationService:
 
         return {
             "predicted_category_id": category.id,
-            "predicted_category_name": category.name,
+            "predicted_category_name": category.decrypted_name,
             "predicted_category_type": category.type,
             "confidence": round(confidence, 4),
         }
@@ -292,10 +296,10 @@ class AutoCategorizationService:
 
         Returns True if a prediction was made.
         """
-        if not transaction.description:
+        if not transaction.decrypted_description:
             return False
 
-        result = cls.predict_category(user, transaction.description)
+        result = cls.predict_category(user, transaction.decrypted_description)
         if result and result['confidence'] >= 0.6:
             transaction.predicted_category_id = result['predicted_category_id']
             transaction.save(update_fields=['predicted_category'])
@@ -328,12 +332,10 @@ class BudgetAlertService:
         days_elapsed = max((today - month_start).days, 1)
 
         # Current month expenses
-        total_spent = Transaction.objects.filter(
-            user=user,
-            category__type='Expense',
-            date__gte=month_start,
-            date__lte=today,
-        ).aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+        current_txs = Transaction.objects.filter(
+            user=user, category__type='Expense', date__gte=month_start, date__lte=today
+        )
+        total_spent = sum(tx.decrypted_amount for tx in current_txs)
 
         total_spent_f = float(total_spent)
         daily_velocity = total_spent_f / days_elapsed

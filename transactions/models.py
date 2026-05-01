@@ -73,7 +73,9 @@ class Category(models.Model):
 
     @property
     def decrypted_name(self):
-        """Розшифровує назву для відображення."""
+        """
+        Decrypts the name for display.
+        """
         from accounts.services.encryption_service import EncryptionService
         if self.name and self.name.startswith('gAAAA'):
             try:
@@ -82,10 +84,14 @@ class Category(models.Model):
                 return "[Decryption Error]"
         return self.name
 
-    def __str__(self):
-        """String representation of the category."""
-        owner = self.user.decrypted_email if self.user else 'System'
-        return f"{self.decrypted_name} ({self.type}) - {owner}"
+    def save(self, *args, **kwargs):
+        """
+        Encrypts the name before saving.
+        """
+        from accounts.services.encryption_service import EncryptionService
+        if self.name and not self.name.startswith('gAAAA'):
+            self.name = EncryptionService.encrypt(self.name)
+        super().save(*args, **kwargs)
 
     def delete(self, *args, **kwargs):
         """
@@ -171,42 +177,47 @@ class Transaction(models.Model):
 
     @property
     def decrypted_amount(self):
-        """Дешифрує суму та повертає її як Decimal."""
+        """
+        Decrypts the amount for display.
+        """
         from accounts.services.encryption_service import EncryptionService
         from decimal import Decimal
         if self.amount and self.amount.startswith('gAAAA'):
             try:
-                dec_str = EncryptionService.decrypt(self.amount)
-                return Decimal(dec_str)
+                return Decimal(EncryptionService.decrypt(self.amount))
             except Exception:
                 return Decimal('0.00')
         return Decimal(self.amount) if self.amount else Decimal('0.00')
 
     @property
     def decrypted_description(self):
-        """Розшифровує опис для відображення в інтерфейсі."""
+        """
+        Decrypts the description for display.
+        """
         from accounts.services.encryption_service import EncryptionService
-        if not self.description:
-            return ""
-        try:
-            return EncryptionService.decrypt(self.description)
-        except Exception:
-            return "[Error: Decryption Failed]"
+        if self.description and self.description.startswith('gAAAA'):
+            try:
+                return EncryptionService.decrypt(self.description)
+            except Exception:
+                return "[Decryption Error]"
+        return self.description
 
     def save(self, *args, **kwargs):
-        """Шифрування всіх полів перед записом у БД."""
         from accounts.services.encryption_service import EncryptionService
         
-        # Шифруємо суму (перетворюємо Decimal у рядок перед шифруванням)
-        amount_str = str(self.amount)
-        if not amount_str.startswith('gAAAA'):
-            self.amount = EncryptionService.encrypt(amount_str)
-
-        # Шифруємо опис
-        if self.description and not self.description.startswith('gAAAA'):
-            self.description = EncryptionService.encrypt(self.description)
-            
-        self.is_encrypted = True
+        # 1. Обробка суми (amount)
+        # Перетворюємо в рядок, оскільки Decimal не має методу startswith
+        val_amount = str(self.amount) if self.amount else ""
+        
+        if val_amount and not val_amount.startswith('gAAAA'):
+            self.amount = EncryptionService.encrypt(val_amount)
+        
+        # 2. Обробка опису (description)
+        if self.description:
+            val_desc = str(self.description)
+            if not val_desc.startswith('gAAAA'):
+                self.description = EncryptionService.encrypt(val_desc)
+                
         super().save(*args, **kwargs)
 
     class Meta:

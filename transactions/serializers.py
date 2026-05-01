@@ -4,12 +4,15 @@ Serializers for the transactions app with strict input validation.
 Includes category and transaction serializers with field-level validation.
 """
 
+from decimal import Decimal, InvalidOperation
+
 from rest_framework import serializers
 from django.core.validators import MinValueValidator
 from django.utils import timezone
 from datetime import datetime, date
 from .models import Category, Transaction, AdvisorConversation, AdvisorMessage
 from accounts.services.pii_detection_service import PIIDetectionService
+from decimal import Decimal, InvalidOperation
 
 
 class CategorySerializer(serializers.ModelSerializer):
@@ -151,6 +154,7 @@ class TransactionSerializer(serializers.ModelSerializer):
         allow_blank=True,
         help_text='Transaction description (will be encrypted on save).'
     )
+    amount = serializers.CharField(required=True)
 
     class Meta:
         model = Transaction
@@ -177,31 +181,19 @@ class TransactionSerializer(serializers.ModelSerializer):
         return None
 
     def validate_amount(self, value):
-        """
-        Validate transaction amount (must be positive).
+        """Валідація суми (тепер працюємо з текстом, який прийшов з фронту)."""
+        try:
+            # Примусово перетворюємо в число для перевірки[cite: 6]
+            numeric_value = Decimal(str(value))
+        except (ValueError, InvalidOperation):
+            raise serializers.ValidationError("Amount must be a valid number.")
 
-        Args:
-            value: Amount to validate
-
-        Returns:
-            decimal.Decimal: Validated amount
-
-        Raises:
-            serializers.ValidationError: If amount is negative or zero
-        """
-        if value <= 0:
-            raise serializers.ValidationError(
-                "Transaction amount must be greater than zero."
-            )
-
-        # Maximum amount check (optional security measure)
-        if value > 9999999999.99:  # 10 billion with 2 decimal places
-            raise serializers.ValidationError(
-                "Transaction amount exceeds maximum allowed value."
-            )
-
-        return value
-
+        if numeric_value <= 0:
+            raise serializers.ValidationError("Amount must be greater than zero.")
+        
+        # Повертаємо назад рядок, бо модель чекає рядок для шифрування
+        return str(numeric_value)
+    
     def validate_date(self, value):
         """
         Validate transaction date.
