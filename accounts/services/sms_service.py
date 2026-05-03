@@ -137,7 +137,7 @@ class SMSService:
         Raises:
             ValueError: If phone number is invalid or SMS sending fails
         """
-        from .models import SMSVerificationOTP
+        from accounts.models import SMSVerificationOTP
 
         # Validate phone number format (basic check for E.164)
         if not phone_number.startswith('+') or not phone_number[1:].isdigit():
@@ -184,7 +184,7 @@ class SMSService:
         Returns:
             tuple: (success: bool, message: str)
         """
-        from .models import SMSVerificationOTP
+        from accounts.models import SMSVerificationOTP
 
         try:
             otp = SMSVerificationOTP.objects.get(user=user)
@@ -208,39 +208,18 @@ class SMSService:
 
         # Code is valid - mark as used
         otp.mark_as_used()
+        user.is_2fa_enabled = True
+        user.save(update_fields=['is_2fa_enabled'])
         return True, 'Code verified successfully.'
 
     @classmethod
     def disable_2fa(cls, user) -> bool:
-        """
-        Disable SMS 2FA for user.
-
-        Args:
-            user: CustomUser instance
-
-        Returns:
-            bool: True if 2FA was disabled
-        """
-        from .models import SMSVerificationOTP
-
+        from accounts.models import SMSVerificationOTP
         SMSVerificationOTP.objects.filter(user=user).delete()
+        user.is_2fa_enabled = False
+        user.save(update_fields=['is_2fa_enabled'])
         return True
 
     @classmethod
     def is_2fa_enabled(cls, user) -> bool:
-        """
-        Check if SMS 2FA is enabled for user.
-
-        Args:
-            user: CustomUser instance
-
-        Returns:
-            bool: True if active 2FA OTP exists and is valid
-        """
-        from .models import SMSVerificationOTP
-
-        try:
-            otp = SMSVerificationOTP.objects.get(user=user)
-            return otp.is_valid() and not otp.used
-        except SMSVerificationOTP.DoesNotExist:
-            return False
+        return user.is_2fa_enabled

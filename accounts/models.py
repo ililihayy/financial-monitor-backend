@@ -79,6 +79,7 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
 
     # Email is stored as ciphertext, so we use TextField and remove unique=True
     email = models.TextField(
+        unique=True,
         verbose_name='Encrypted Email Address',
         help_text='Stored in encrypted format (AES-128).'
     )
@@ -110,11 +111,12 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
         null=True,
         blank=True
     )
-    phone_number = models.CharField(
-        max_length=20,
-        null=True,
-        blank=True,
+    phone_number = models.TextField(
         verbose_name='Phone Number'
+    )
+    is_2fa_enabled = models.BooleanField(
+        default=False, 
+        verbose_name='2FA Enabled'
     )
 
     objects = CustomUserManager()
@@ -140,6 +142,9 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
             # Encrypt the actual email value
             self.email = EncryptionService.encrypt(clean_email)
 
+        if self.phone_number and not self.phone_number.startswith('gAAAA'):
+            self.phone_number = EncryptionService.encrypt(self.phone_number)
+
         super().save(*args, **kwargs)
 
     @property
@@ -148,6 +153,13 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
         Helper property to get the plaintext email.
         """
         return EncryptionService.decrypt(self.email)
+    
+    @property
+    def decrypted_phone_number(self):
+        """
+        Helper property to get the plaintext phone number.
+        """
+        return EncryptionService.decrypt(self.phone_number)
 
     def __str__(self):
         """Return decrypted email for readability in admin/logs."""

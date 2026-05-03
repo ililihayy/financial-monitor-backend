@@ -41,7 +41,7 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
             'email': {'required': True},
             'nickname': {'required': False},
             'currency_preference': {'required': False},
-            'phone_number': {'required': False},
+            'phone_number': {'required': True},
         }
 
     def validate_email(self, value):
@@ -115,17 +115,19 @@ class UserSerializer(serializers.ModelSerializer):
     Serializer for user profile information (read-only for sensitive data).
     """
     email = serializers.ReadOnlyField(source='decrypted_email')
+    phone_number = serializers.ReadOnlyField(source='decrypted_phone_number')
 
     class Meta:
         model = CustomUser
         fields = (
             'id',
             'email',
+            'phone_number',
             'nickname',
             'currency_preference',
             'date_joined'
         )
-        read_only_fields = ('id', 'email', 'nickname', 'date_joined')
+        read_only_fields = ('id', 'email', 'phone_number', 'nickname', 'date_joined')
 
 
 class LoginSerializer(serializers.Serializer):

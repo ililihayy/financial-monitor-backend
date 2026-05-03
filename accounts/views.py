@@ -27,7 +27,7 @@ from .serializers import (
     RegistrationVerifySerializer, SMS2FASetupSerializer, SMS2FAVerifySerializer,
     SMS2FADisableSerializer
 )
-from .models import CustomUser, PasswordResetOTP, RegistrationOTP
+from accounts.models  import CustomUser, PasswordResetOTP, RegistrationOTP
 from .services import AuditService
 
 
@@ -245,7 +245,7 @@ def login_view(request):
     if user is not None:
         # Перевірка SMS 2FA (якщо налаштовано)[cite: 3]
         try:
-            from .models import SMSVerificationOTP
+            from accounts.models import SMSVerificationOTP
             from .services.sms_service import SMSService
             import logging
 
@@ -704,6 +704,7 @@ def sms_2fa_setup_view(request):
     except ValueError as e:
         return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
     except Exception as e:
+        print(f"------- SMS 2FA SETUP ERROR -------\n{str(e)}\n") 
         return Response(
             {'error': 'Failed to set up SMS 2FA. Please try again.'},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -738,16 +739,20 @@ def sms_2fa_verify_view(request):
 
     try:
         from .services.sms_service import SMSService
-        from .models import SMSVerificationOTP
+        from accounts.models import SMSVerificationOTP
 
         success, message = SMSService.verify_2fa_code(request.user, code)
 
         if success:
             AuditService.log_2fa_enabled(request.user, _get_client_ip(request))
-            otp = SMSVerificationOTP.objects.get(user=request.user)
+            refresh = RefreshToken.for_user(request.user)
             return Response({
-                'message': message,
-                'phone_number': otp.phone_number
+                'message': 'Logged in successfully',
+                'tokens': {
+                    'refresh': str(refresh),
+                    'access': str(refresh.access_token),
+                },
+                'user': UserSerializer(request.user).data
             }, status=status.HTTP_200_OK)
         else:
             return Response({'error': message}, status=status.HTTP_400_BAD_REQUEST)
@@ -822,7 +827,7 @@ def sms_2fa_status_view(request):
     """
     try:
         from .services.sms_service import SMSService
-        from .models import SMSVerificationOTP
+        from accounts.models import SMSVerificationOTP
 
         is_enabled = SMSService.is_2fa_enabled(request.user)
 
