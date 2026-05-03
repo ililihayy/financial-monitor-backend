@@ -29,6 +29,8 @@ from .serializers import (
 )
 from accounts.models  import CustomUser, PasswordResetOTP, RegistrationOTP
 from .services import AuditService
+from disposable_email_checker.validators import validate_disposable_email
+from django.core.exceptions import ValidationError
 
 
 @api_view(['POST'])
@@ -56,6 +58,15 @@ def register_view(request):
 
     if not serializer.is_valid():
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    email = request.data.get('email', '').lower().strip()
+    try:
+        validate_disposable_email(email)
+    except ValidationError:
+        return Response(
+            {'email': ['The use of temporary email addresses is prohibited.']}, 
+            status=status.HTTP_400_BAD_REQUEST
+        )
 
     try:
         # Create user but set as inactive
