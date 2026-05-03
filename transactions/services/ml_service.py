@@ -25,6 +25,8 @@ from sklearn.metrics import r2_score
 
 from transactions.models import Transaction
 
+from .quotes_service import QuotesService
+
 logger = logging.getLogger('security')
 
 
@@ -76,6 +78,9 @@ class MLForecastService:
         slope = model.coef_[0]
         trend_direction = "increasing" if slope > 0 else "decreasing"
 
+        quote_data = QuotesService.get_daily_quote()
+        wisdom = f"{quote_data['text']} — {quote_data['author']}"
+
         return {
             "status": "success",
             "forecast": {
@@ -85,11 +90,8 @@ class MLForecastService:
                 "next_month": (today.replace(day=28) + timedelta(days=4)).replace(day=1).strftime('%b %Y'),
             },
             "historical_trends": historical,
-            "mathematical_summary": {
-                "r_squared": round(float(r2), 4),
-                "slope": round(float(slope), 2),
-                "intercept": round(float(model.intercept_), 2),
-            },
+            # ЗАМІСТЬ математики повертаємо цитату[cite: 11, 12]
+            "financial_wisdom": wisdom 
         }
 
 

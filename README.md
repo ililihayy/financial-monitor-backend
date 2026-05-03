@@ -101,7 +101,7 @@ DATABASE_URL=postgresql://postgres:[YOUR-PASSWORD]@db.[YOUR-PROJECT-REF].supabas
 # DATABASE_URL=postgresql://username:password@localhost:5432/financial_monitor
 
 # CORS Configuration
-CORS_ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
+CORS_ALLOWED_ORIGINS=https://localhost:3000,https://127.0.0.1:3000
 ```
 
 ### 5. Supabase Setup (Recommended)
@@ -140,7 +140,9 @@ python manage.py createsuperuser
 python manage.py runserver
 ```
 
-The API will be available at `http://localhost:8000/`
+python manage.py runserver_plus --cert-file localhost+2.pem --key-file localhost+2-key.pem
+
+The API will be available at `https://localhost:8000/`
 
 ## API Endpoints
 
@@ -181,7 +183,7 @@ The API will be available at `http://localhost:8000/`
 ### 1. Register a User
 
 ```bash
-curl -X POST http://localhost:8000/api/auth/register/ \
+curl -X POST https://localhost:8000/api/auth/register/ \
   -H "Content-Type: application/json" \
   -d '{
     "email": "user@example.com",
@@ -194,7 +196,7 @@ curl -X POST http://localhost:8000/api/auth/register/ \
 ### 2. Login
 
 ```bash
-curl -X POST http://localhost:8000/api/auth/login/ \
+curl -X POST https://localhost:8000/api/auth/login/ \
   -H "Content-Type: application/json" \
   -d '{
     "email": "user@example.com",
@@ -221,7 +223,7 @@ Response:
 ### 3. Create a Transaction (Authenticated)
 
 ```bash
-curl -X POST http://localhost:8000/api/transactions/ \
+curl -X POST https://localhost:8000/api/transactions/ \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer YOUR_ACCESS_TOKEN" \
   -d '{
@@ -235,14 +237,14 @@ curl -X POST http://localhost:8000/api/transactions/ \
 ### 4. Get Dashboard Data
 
 ```bash
-curl -X GET "http://localhost:8000/api/analytics/dashboard/?year=2024&month=3" \
+curl -X GET "https://localhost:8000/api/analytics/dashboard/?year=2024&month=3" \
   -H "Authorization: Bearer YOUR_ACCESS_TOKEN"
 ```
 
 ### 5. Get ML Forecast
 
 ```bash
-curl -X GET "http://localhost:8000/api/analytics/forecast/?months_back=12" \
+curl -X GET "https://localhost:8000/api/analytics/forecast/?months_back=12" \
   -H "Authorization: Bearer YOUR_ACCESS_TOKEN"
 ```
 
@@ -301,7 +303,7 @@ python manage.py migrate
 ### Accessing Django Admin
 
 1. Create superuser: `python manage.py createsuperuser`
-2. Visit: `http://localhost:8000/admin/`
+2. Visit: `https://localhost:8000/admin/`
 3. Login with superuser credentials
 
 ## Production Deployment

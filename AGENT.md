@@ -97,7 +97,7 @@ DEBUG=True
 SECRET_KEY=<strong-random-key>
 ALLOWED_HOSTS=localhost,127.0.0.1
 DATABASE_URL=postgresql://user:pass@host:5432/dbname
-CORS_ALLOWED_ORIGINS=http://localhost:3000
+CORS_ALLOWED_ORIGINS=https://localhost:3000
 GOOGLE_OAUTH_CLIENT_ID=<google-client-id>          # optional, for Google auth
 EMAIL_BACKEND=django.core.mail.backends.console.EmailBackend  # dev default
 
@@ -131,8 +131,8 @@ python manage.py populate_test_data
 python manage.py runserver
 
 # Interactive API docs
-# http://localhost:8000/api/docs/        ← Swagger UI
-# http://localhost:8000/api/redoc/       ← ReDoc
+# https://localhost:8000/api/docs/        ← Swagger UI
+# https://localhost:8000/api/redoc/       ← ReDoc
 ```
 
 ## Adding New Endpoints — Checklist

@@ -1,6 +1,6 @@
 # API Reference
 
-Base URL: `http://localhost:8000`  
+Base URL: `https://localhost:8000`  
 All authenticated endpoints require: `Authorization: Bearer <access_token>`  
 All request/response bodies use `Content-Type: application/json`.
 

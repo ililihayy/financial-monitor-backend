@@ -129,3 +129,7 @@ class AuditService:
         cls.log('pii_warning', user=user, ip=ip, detail={
             'detected_types': pii_types,
         })
+
+    @classmethod
+    def log_account_deletion(cls, user, ip: str):
+        cls.log('account_deleted', user=user, ip=ip)

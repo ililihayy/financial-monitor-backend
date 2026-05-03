@@ -50,6 +50,7 @@ INSTALLED_APPS = [
     'transactions',
     'drf_spectacular',
     'csp',
+    'django_extensions',
 ]
 
 MIDDLEWARE = [
@@ -153,11 +154,16 @@ REST_FRAMEWORK = {
     'DEFAULT_THROTTLE_RATES': {
         'anon': '100/day',
         'user': '1000/hour',
-        
+
         'login': '5/minute',
         'forecast': '20/hour',
         'advisor': '10/hour',
         'default': '100/hour',
+        'resend_verification': '3/minute',  # Повторне надсилання коду реєстрації
+        'password_reset': '5/hour',
+        'sms_2fa_setup': '3/minute',  # SMS 2FA code sending
+        'sms_2fa_verify': '5/minute',  # SMS 2FA code verification
+        'sms_2fa_disable': '3/minute',  # Disabling SMS 2FA
     },
 }
 
@@ -190,10 +196,10 @@ SPECTACULAR_SETTINGS = {
 CORS_ALLOWED_ORIGINS = env.list(
     'CORS_ALLOWED_ORIGINS',
     default=[
-        'http://localhost:3000',  # React default port
-        'http://127.0.0.1:3000',
-        'http://localhost:8080',  # Alternative frontend port
-        'http://127.0.0.1:8080',
+        'https://localhost:3000',  # React default port
+        'https://127.0.0.1:3000',
+        'https://localhost:8080',  # Alternative frontend port
+        'https://127.0.0.1:8080',
     ]
 )
 
@@ -310,6 +316,21 @@ GOOGLE_OAUTH_CLIENT_ID = env('GOOGLE_OAUTH_CLIENT_ID', default='')
 GOOGLE_OAUTH_CLIENT_SECRET = env('GOOGLE_OAUTH_CLIENT_SECRET', default='')
 
 # =============================================================================
+# Twilio SMS Configuration (for SMS-based 2FA)
+# =============================================================================
+# To set up Twilio:
+# 1. Create an account at https://www.twilio.com/
+# 2. Get your Account SID and Auth Token from the dashboard
+# 3. Get or create a Twilio phone number
+# 4. Set these environment variables in your .env file:
+#    TWILIO_ACCOUNT_SID=your_account_sid
+#    TWILIO_AUTH_TOKEN=your_auth_token
+#    TWILIO_PHONE_NUMBER=+1234567890
+TWILIO_ACCOUNT_SID = env('TWILIO_ACCOUNT_SID', default='')
+TWILIO_AUTH_TOKEN = env('TWILIO_AUTH_TOKEN', default='')
+TWILIO_PHONE_NUMBER = env('TWILIO_PHONE_NUMBER', default='')
+
+# =============================================================================
 # Django-Axes: Brute-Force Protection
 # =============================================================================
 AXES_FAILURE_LIMIT = 5                   # Lock after 5 failed attempts
@@ -379,7 +400,7 @@ CONTENT_SECURITY_POLICY = {
         ),
         'connect-src': (
             "'self'",
-            "http://localhost:8000",
+            "https://localhost:8000",
             "https://accounts.google.com",
         ),
     }

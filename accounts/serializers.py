@@ -7,6 +7,8 @@ Includes user registration and authentication serializers.
 from rest_framework import serializers
 from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth import authenticate
+from django.conf import settings
+import hashlib
 from .models import CustomUser
 
 
@@ -34,11 +36,12 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
     class Meta:
         model = CustomUser
         fields = ('email', 'nickname', 'password',
-                  'password_confirm', 'currency_preference')
+                  'password_confirm', 'currency_preference', 'phone_number')
         extra_kwargs = {
             'email': {'required': True},
             'nickname': {'required': False},
             'currency_preference': {'required': False},
+            'phone_number': {'required': False},
         }
 
     def validate_email(self, value):
@@ -57,12 +60,19 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         if not value:
             raise serializers.ValidationError("Email is required.")
 
-        # Check if email already exists
-        if CustomUser.objects.filter(email=value).exists():
-            raise serializers.ValidationError(
-                "A user with this email already exists.")
+        # Normalize email for comparison
+        clean_email = value.lower().strip()
 
-        return value.lower().strip()
+        # Generate email_hash using the same method as the model
+        salt = getattr(settings, 'SECRET_KEY', 'default-salt')
+        email_hash = hashlib.sha256((clean_email + salt).encode()).hexdigest()
+
+        # Check if email_hash already exists (meaning email is taken)
+        if CustomUser.objects.filter(email_hash=email_hash).exists():
+            raise serializers.ValidationError(
+                "A user with this email address is already registered.")
+
+        return clean_email
 
     def validate(self, attrs):
         """
@@ -154,8 +164,9 @@ class LoginSerializer(serializers.Serializer):
 
         if email and password:
             request = self.context.get('request')
-        
-            user = authenticate(request=request, email=email, password=password)
+
+            user = authenticate(
+                request=request, email=email, password=password)
 
             if not user:
                 raise serializers.ValidationError(
@@ -282,4 +293,153 @@ class PasswordResetConfirmSerializer(serializers.Serializer):
         if not value or not value.isdigit() or len(value) != 6:
             raise serializers.ValidationError(
                 "OTP code must be exactly 6 digits.")
+        return value
+
+
+class RegistrationVerifySerializer(serializers.Serializer):
+    """
+    Serializer for registration email verification.
+
+    Accepts email and OTP code to verify and activate the user account.
+    """
+
+    email = serializers.EmailField(
+        required=True,
+        help_text='Email address of the user.'
+    )
+    code = serializers.CharField(
+        required=True,
+        max_length=6,
+        min_length=6,
+        help_text='6-digit OTP code sent via email.'
+    )
+
+    def validate_email(self, value):
+        """Validate email format."""
+        if not value:
+            raise serializers.ValidationError("Email is required.")
+        return value.lower().strip()
+
+    def validate_code(self, value):
+        """
+        Validate OTP code format (must be 6 digits).
+
+        Args:
+            value: OTP code to validate
+
+        Returns:
+            str: Validated code
+
+        Raises:
+            serializers.ValidationError: If code format is invalid
+        """
+        if not value or not value.isdigit() or len(value) != 6:
+            raise serializers.ValidationError(
+                "OTP code must be exactly 6 digits.")
+        return value
+
+
+class SMS2FASetupSerializer(serializers.Serializer):
+    """
+    Serializer for initiating SMS 2FA setup.
+
+    Accepts phone number and sends verification code via SMS.
+    """
+
+    phone_number = serializers.CharField(
+        required=True,
+        max_length=20,
+        help_text='Phone number in E.164 format (e.g., +1234567890)'
+    )
+
+    def validate_phone_number(self, value):
+        """
+        Validate phone number format (E.164).
+
+        Args:
+            value: Phone number to validate
+
+        Returns:
+            str: Validated phone number
+
+        Raises:
+            serializers.ValidationError: If phone number format is invalid
+        """
+        if not value:
+            raise serializers.ValidationError("Phone number is required.")
+
+        # Check if it starts with + and contains only digits
+        if not value.startswith('+') or not value[1:].isdigit():
+            raise serializers.ValidationError(
+                "Phone number must be in E.164 format (e.g., +1234567890)"
+            )
+
+        return value
+
+
+class SMS2FAVerifySerializer(serializers.Serializer):
+    """
+    Serializer for verifying SMS 2FA code.
+
+    Accepts OTP code and verifies it matches the sent code.
+    """
+
+    code = serializers.CharField(
+        required=True,
+        max_length=6,
+        min_length=6,
+        help_text='6-digit OTP code sent via SMS'
+    )
+
+    def validate_code(self, value):
+        """
+        Validate OTP code format (must be 6 digits).
+
+        Args:
+            value: OTP code to validate
+
+        Returns:
+            str: Validated code
+
+        Raises:
+            serializers.ValidationError: If code format is invalid
+        """
+        if not value or not value.isdigit() or len(value) != 6:
+            raise serializers.ValidationError(
+                "Code must be exactly 6 digits."
+            )
+        return value
+
+
+class SMS2FADisableSerializer(serializers.Serializer):
+    """
+    Serializer for disabling SMS 2FA.
+
+    Requires verification with current OTP code for security.
+    """
+
+    code = serializers.CharField(
+        required=True,
+        max_length=6,
+        min_length=6,
+        help_text='6-digit OTP code for verification'
+    )
+
+    def validate_code(self, value):
+        """
+        Validate OTP code format (must be 6 digits).
+
+        Args:
+            value: OTP code to validate
+
+        Returns:
+            str: Validated code
+
+        Raises:
+            serializers.ValidationError: If code format is invalid
+        """
+        if not value or not value.isdigit() or len(value) != 6:
+            raise serializers.ValidationError(
+                "Code must be exactly 6 digits."
+            )
         return value

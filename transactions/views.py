@@ -30,6 +30,7 @@ from .services import (
     AnomalyDetectionService, AutoCategorizationService,
     BudgetAlertService, FinancialHealthService, MLRetrainingService,
 )
+from .services.quotes_service import QuotesService
 from django.core.cache import cache
 from django.utils.timezone import now
 from rest_framework.response import Response
@@ -361,7 +362,7 @@ def balance_view(request):
 def trend_view(request):
     from collections import defaultdict
     from datetime import date, timedelta
-    
+
     months_back = int(request.query_params.get('months_back', 12))
     end_date = date.today()
     start_date = end_date - timedelta(days=months_back * 31)
@@ -375,7 +376,7 @@ def trend_view(request):
 
     # Групуємо по місяцях у Python[cite: 6]
     monthly_data = defaultdict(lambda: {'income': 0.0, 'expenses': 0.0})
-    
+
     for tx in transactions:
         month_key = tx.date.strftime('%Y-%m')
         amount = float(tx.decrypted_amount)
@@ -697,3 +698,29 @@ def financial_advisor_view(request):
     )
 
     return Response(result, status=http_status)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def daily_quote_view(request):
+    """
+    Get the daily financial quote of the day.
+
+    GET /api/quote/daily/ - Returns a deterministic quote based on current date
+
+    Returns: {
+        "text": "An investment in knowledge pays the best interest.",
+        "author": "Benjamin Franklin",
+        "category": "Investment",
+        "date": "2026-05-02",
+        "type": "daily"
+    }
+    """
+    try:
+        quote = QuotesService.get_daily_quote()
+        return Response(quote, status=status.HTTP_200_OK)
+    except Exception as e:
+        return Response(
+            {"error": "Failed to fetch quote", "details": str(e)},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )

@@ -4,6 +4,7 @@ from .views import (
     anomaly_detection_view, auto_categorize_view, budget_alert_view,
     health_score_view, financial_advisor_view,
     advisor_conversations_view, advisor_conversation_detail_view,
+    daily_quote_view,
 )
 
 urlpatterns = [
@@ -23,4 +24,6 @@ urlpatterns = [
          name='advisor-conversations'),
     path('advisor/conversations/<int:pk>/',
          advisor_conversation_detail_view, name='advisor-conversation-detail'),
+    # Daily inspirational quote
+    path('quote/daily/', daily_quote_view, name='daily-quote'),
 ]
