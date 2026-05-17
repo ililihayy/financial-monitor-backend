@@ -52,3 +52,7 @@ twilio==9.2.0
 tzdata==2025.3
 uritemplate==4.2.0
 urllib3==2.6.3
+django-extensions==3.2.3
+Werkzeug==3.0.1
+pyOpenSSL
+django-disposable-email-checker

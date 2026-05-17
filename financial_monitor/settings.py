@@ -54,6 +54,7 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    'corsheaders.middleware.CorsMiddleware',
     'csp.middleware.CSPMiddleware',
     'django.middleware.security.SecurityMiddleware',
     # CORS middleware (early in stack)
@@ -401,6 +402,8 @@ CONTENT_SECURITY_POLICY = {
         ),
         'connect-src': (
             "'self'",
+            "http://localhost:3000",
+            "https://localhost:3000",
             "https://localhost:8000",
             "https://accounts.google.com",
         ),

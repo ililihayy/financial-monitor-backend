@@ -133,17 +133,18 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
         """
         Encrypt email and generate blind index hash before saving.
         """
-        if self.email and not self.email.startswith('gAAAA'):
-            clean_email = self.email.lower().strip()
-            # Generate deterministic hash for searching
-            salt = getattr(settings, 'SECRET_KEY', 'default-salt')
-            self.email_hash = hashlib.sha256(
-                (clean_email + salt).encode()).hexdigest()
-            # Encrypt the actual email value
-            self.email = EncryptionService.encrypt(clean_email)
+        if self.email:
+            # Якщо спроба дешифрування повертає те саме значення — це відкритий текст
+            if EncryptionService.decrypt(self.email) == self.email:
+                clean_email = self.email.lower().strip()
+                salt = getattr(settings, 'SECRET_KEY', 'default-salt')
+                self.email_hash = hashlib.sha256(
+                    (clean_email + salt).encode()).hexdigest()
+                self.email = EncryptionService.encrypt(clean_email)
 
-        if self.phone_number and not self.phone_number.startswith('gAAAA'):
-            self.phone_number = EncryptionService.encrypt(self.phone_number)
+        if self.phone_number:
+            if EncryptionService.decrypt(self.phone_number) == self.phone_number:
+                self.phone_number = EncryptionService.encrypt(self.phone_number)
 
         super().save(*args, **kwargs)
 
@@ -216,17 +217,13 @@ class PasswordResetOTP(models.Model):
         ]
 
     def save(self, *args, **kwargs):
-        """
-        Encrypt email and generate blind index hash before saving.
-        """
-        if self.email and not self.email.startswith('gAAAA'):
-            clean_email = self.email.lower().strip()
-            # Generate deterministic hash for searching
-            salt = getattr(settings, 'SECRET_KEY', 'default-salt')
-            self.email_hash = hashlib.sha256(
-                (clean_email + salt).encode()).hexdigest()
-            # Encrypt the actual email value
-            self.email = EncryptionService.encrypt(clean_email)
+        if self.email:
+            if EncryptionService.decrypt(self.email) == self.email:
+                clean_email = self.email.lower().strip()
+                salt = getattr(settings, 'SECRET_KEY', 'default-salt')
+                self.email_hash = hashlib.sha256(
+                    (clean_email + salt).encode()).hexdigest()
+                self.email = EncryptionService.encrypt(clean_email)
 
         super().save(*args, **kwargs)
 
@@ -301,17 +298,13 @@ class RegistrationOTP(models.Model):
         ]
 
     def save(self, *args, **kwargs):
-        """
-        Encrypt email and generate blind index hash before saving.
-        """
-        if self.email and not self.email.startswith('gAAAA'):
-            clean_email = self.email.lower().strip()
-            # Generate deterministic hash for searching
-            salt = getattr(settings, 'SECRET_KEY', 'default-salt')
-            self.email_hash = hashlib.sha256(
-                (clean_email + salt).encode()).hexdigest()
-            # Encrypt the actual email value
-            self.email = EncryptionService.encrypt(clean_email)
+        if self.email:
+            if EncryptionService.decrypt(self.email) == self.email:
+                clean_email = self.email.lower().strip()
+                salt = getattr(settings, 'SECRET_KEY', 'default-salt')
+                self.email_hash = hashlib.sha256(
+                    (clean_email + salt).encode()).hexdigest()
+                self.email = EncryptionService.encrypt(clean_email)
 
         super().save(*args, **kwargs)
 
