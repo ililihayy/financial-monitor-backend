@@ -335,3 +335,9 @@ This project is part of a diploma work: "Secure Financial Expense Monitoring Sys
 ## Author
 
 Diploma Project - Financial Monitor Backend
+
+docker compose up --build -d
+Bash
+docker compose exec backend python manage.py migrate
+docker compose exec backend python manage.py createcachetable
+docker compose exec backend python manage.py createsuperuser

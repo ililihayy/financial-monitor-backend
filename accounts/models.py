@@ -25,7 +25,6 @@ class CustomUserManager(BaseUserManager):
         """
         if not email:
             return None
-        # Normalize and hash the email with the system's secret key
         salt = getattr(settings, 'SECRET_KEY', 'default-salt')
         return hashlib.sha256((email.lower() + salt).encode()).hexdigest()
 
@@ -134,7 +133,6 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
         Encrypt email and generate blind index hash before saving.
         """
         if self.email:
-            # Якщо спроба дешифрування повертає те саме значення — це відкритий текст
             if EncryptionService.decrypt(self.email) == self.email:
                 clean_email = self.email.lower().strip()
                 salt = getattr(settings, 'SECRET_KEY', 'default-salt')

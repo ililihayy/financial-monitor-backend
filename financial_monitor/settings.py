@@ -57,7 +57,6 @@ MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     'csp.middleware.CSPMiddleware',
     'django.middleware.security.SecurityMiddleware',
-    # CORS middleware (early in stack)
     'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -68,7 +67,7 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     # Custom logging middleware for security monitoring
     'financial_monitor.middleware.SecurityLoggingMiddleware',
-    # Brute-force protection — must be last
+    # Brute-force protection
     'axes.middleware.AxesMiddleware',
 ]
 
@@ -103,14 +102,13 @@ DATABASES = {
 # Custom User Model
 AUTH_USER_MODEL = 'accounts.CustomUser'
 
-# Password validation
 AUTH_PASSWORD_VALIDATORS = [
     {
         'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
     },
     {
         'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
-        'OPTIONS': {'min_length': 8}, # Стандарт NIST — мінімум 8 символів
+        'OPTIONS': {'min_length': 8},
     },
     {
         'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
@@ -161,7 +159,7 @@ REST_FRAMEWORK = {
         'forecast': '20/hour',
         'advisor': '10/hour',
         'default': '100/hour',
-        'resend_verification': '3/minute',  # Повторне надсилання коду реєстрації
+        'resend_verification': '3/minute',
         'password_reset': '5/hour',
         'sms_2fa_setup': '3/minute',  # SMS 2FA code sending
         'sms_2fa_verify': '5/minute',  # SMS 2FA code verification
@@ -194,7 +192,7 @@ SPECTACULAR_SETTINGS = {
     'COMPONENT_SPLIT_PATCH': True,
 }
 
-# CORS Configuration (Security: allow specific origins only)
+
 CORS_ALLOWED_ORIGINS = env.list(
     'CORS_ALLOWED_ORIGINS',
     default=[
@@ -332,9 +330,8 @@ TWILIO_ACCOUNT_SID = env('TWILIO_ACCOUNT_SID', default='')
 TWILIO_AUTH_TOKEN = env('TWILIO_AUTH_TOKEN', default='')
 TWILIO_PHONE_NUMBER = env('TWILIO_PHONE_NUMBER', default='')
 
-# =============================================================================
+
 # Django-Axes: Brute-Force Protection
-# =============================================================================
 AXES_FAILURE_LIMIT = 5                   # Lock after 5 failed attempts
 AXES_COOLOFF_TIME = 1                    # Lock duration in hours
 AXES_LOCKOUT_PARAMETERS = ['ip_address', 'username']  # Lock per IP + username

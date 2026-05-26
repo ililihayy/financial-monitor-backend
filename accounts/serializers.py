@@ -129,6 +129,14 @@ class UserSerializer(serializers.ModelSerializer):
         )
         read_only_fields = ('id', 'email', 'phone_number', 'nickname', 'date_joined')
 
+    def update(self, instance, validated_data):
+        instance.currency_preference = validated_data.get(
+            'currency_preference', 
+            instance.currency_preference
+        )
+        instance.save()
+        return instance
+
 
 class LoginSerializer(serializers.Serializer):
     """

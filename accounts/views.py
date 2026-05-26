@@ -1,10 +1,3 @@
-"""
-Views for authentication endpoints.
-
-Handles user registration, login, token refresh, and logout.
-Uses JWT authentication via SimpleJWT.
-"""
-
 from rest_framework import status, generics, permissions
 from rest_framework.response import Response
 from rest_framework.decorators import api_view, permission_classes, throttle_classes
@@ -80,26 +73,19 @@ def register_view(request):
             status=status.HTTP_400_BAD_REQUEST
         )
 
-    # Get the plain email for storing in OTP (it will be encrypted during save)
     email = request.data.get('email').lower().strip()
-
-    # Generate 6-digit OTP code
     code = ''.join([str(random.randint(0, 9)) for _ in range(6)])
-
-    # Set expiration (15 minutes from now)
     expires_at = timezone.now() + timedelta(minutes=15)
 
     # Invalidate any existing OTP codes for this email
     RegistrationOTP.objects.filter(email=email, used=False).update(used=True)
 
-    # Create new OTP record
     otp = RegistrationOTP.objects.create(
         email=email,
         code=code,
         expires_at=expires_at
     )
 
-    # Send email with OTP code
     try:
         send_mail(
             subject='Verify Your Email - Financial Monitor',
@@ -129,8 +115,6 @@ def register_view(request):
     }, status=status.HTTP_200_OK)
 
 
-# views_6.py
-
 @api_view(['POST'])
 @permission_classes([AllowAny])
 @throttle_classes([ScopedRateThrottle])
@@ -143,19 +127,12 @@ def register_verify_view(request):
     email = serializer.validated_data['email'].lower().strip()
     code = serializer.validated_data['code']
 
-    # 1. ГЕНЕРУЄМО ХЕШ ДЛЯ ПОШУКУ (Blind Index)
-    # Використовуємо той самий метод, що і в менеджері користувачів
     email_hash = CustomUser.objects._generate_email_hash(email)
-
-    # 2. ШУКАЄМО OTP ЗА ХЕШЕМ ТА КОДОМ
     try:
         otp = RegistrationOTP.objects.filter(
-            email_hash=email_hash,  # Використовуємо хеш замість email
-            code=code,
-            used=False
+            email_hash=email_hash,
         ).latest('created_at')
 
-        # Перевірка на термін дії
         if not otp.is_valid():
             return Response(
                 {'error': 'Verification code has expired.'},
@@ -378,17 +355,25 @@ def logout_view(request):
         )
 
 
-@api_view(['GET'])
+@api_view(['GET', 'PATCH'])
 @permission_classes([permissions.IsAuthenticated])
 def user_profile_view(request):
     """
-    Get current user profile.
-
+    Get or update current user profile.
     GET /api/auth/profile/
-
-    Returns: User profile data
+    PATCH /api/auth/profile/
     """
-    serializer = UserSerializer(request.user)
+    user = request.user
+    
+    if request.method == 'PATCH':
+        serializer = UserSerializer(user, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            # AuditService.log_profile_update(user, _get_client_ip(request))
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        
+    serializer = UserSerializer(user)
     return Response(serializer.data, status=status.HTTP_200_OK)
 
 
@@ -723,56 +708,55 @@ def sms_2fa_setup_view(request):
 
 
 @api_view(['POST'])
-@permission_classes([permissions.IsAuthenticated])
+@permission_classes([AllowAny]) # ЗМІНЕНО: Дозволяємо анонімний доступ для етапу логіну
 @throttle_classes([ScopedRateThrottle])
 def sms_2fa_verify_view(request):
-    """
-    Verify SMS 2FA code and enable SMS 2FA.
-
-    POST /api/auth/sms-2fa/verify/
-    Body: {
-        "code": "123456"
-    }
-
-    Returns: {
-        "message": "SMS 2FA has been enabled successfully",
-        "phone_number": "+1234567890"
-    }
-    """
     sms_2fa_verify_view.throttle_scope = 'sms_2fa_verify'
 
-    serializer = SMS2FAVerifySerializer(data=request.data)
+    # Очікуємо email та code від фронтенду
+    email = request.data.get('email', '').lower().strip()
+    code = request.data.get('code')
 
-    if not serializer.is_valid():
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    if not email or not code:
+        return Response({'error': 'Email and verification code are required.'}, status=status.HTTP_400_BAD_REQUEST)
 
-    code = serializer.validated_data['code']
+    # 1. Шукаємо користувача за сліпим індексом (email_hash)
+    email_hash = CustomUser.objects._generate_email_hash(email)
+    user = CustomUser.objects.filter(email_hash=email_hash).first()
 
+    if not user:
+        return Response({'error': 'Invalid credentials or code.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    # 2. Перевіряємо код через модель SMSVerificationOTP
+    from accounts.models import SMSVerificationOTP
     try:
-        from .services.sms_service import SMSService
-        from accounts.models import SMSVerificationOTP
+        otp = SMSVerificationOTP.objects.get(user=user)
+        
+        if not otp.is_valid():
+            return Response({'error': 'The code has expired.'}, status=status.HTTP_400_BAD_REQUEST)
+            
+        if otp.code != code:
+            otp.increment_attempts()
+            return Response({'error': 'Invalid verification code.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        success, message = SMSService.verify_2fa_code(request.user, code)
+        # Якщо код успішний — маркуємо як використаний
+        otp.mark_as_used()
 
-        if success:
-            AuditService.log_2fa_enabled(request.user, _get_client_ip(request))
-            refresh = RefreshToken.for_user(request.user)
-            return Response({
-                'message': 'Logged in successfully',
-                'tokens': {
-                    'refresh': str(refresh),
-                    'access': str(refresh.access_token),
-                },
-                'user': UserSerializer(request.user).data
-            }, status=status.HTTP_200_OK)
-        else:
-            return Response({'error': message}, status=status.HTTP_400_BAD_REQUEST)
+        # 3. Генеруємо фінальні JWT токени для успішного входу
+        refresh = RefreshToken.for_user(user)
+        AuditService.log_login_success(user, _get_client_ip(request))
+        
+        return Response({
+            'success': True,
+            'user': UserSerializer(user).data,
+            'tokens': {
+                'refresh': str(refresh),
+                'access': str(refresh.access_token),
+            }
+        }, status=status.HTTP_200_OK)
 
-    except Exception as e:
-        return Response(
-            {'error': str(e)},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
+    except SMSVerificationOTP.DoesNotExist:
+        return Response({'error': '2FA session not found. Please log in again.'}, status=status.HTTP_400_BAD_REQUEST)
 
 
 @api_view(['POST'])
