@@ -198,13 +198,10 @@ class Transaction(models.Model):
     def save(self, *args, **kwargs):
         from accounts.services.encryption_service import EncryptionService
 
-        # 1. Обробка суми (amount)
-        # Перетворюємо в рядок, оскільки Decimal не має методу startswith
         val_amount = str(self.amount) if self.amount else ""
         if val_amount and EncryptionService.decrypt(val_amount) == val_amount:
             self.amount = EncryptionService.encrypt(val_amount)
 
-        # Обробка опису (description)
         if self.description:
             val_desc = str(self.description)
             if EncryptionService.decrypt(val_desc) == val_desc:

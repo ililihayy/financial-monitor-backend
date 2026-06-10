@@ -36,10 +36,9 @@ class MLForecastService:
         today = date.today()
 
         six_months_ago = today - timedelta(days=365)
-        # Замість .annotate(total=Sum('amount')) робимо так:
         raw_txs = Transaction.objects.filter(
             user=user,
-            category__type__iexact='expense',  # iexact ігнорує велика/мала літера
+            category__type__iexact='expense',
             date__gte=six_months_ago
         ).select_related('category')
 
@@ -88,7 +87,6 @@ class MLForecastService:
                 "next_month": (today.replace(day=28) + timedelta(days=4)).replace(day=1).strftime('%b %Y'),
             },
             "historical_trends": historical,
-            # ЗАМІСТЬ математики повертаємо цитату[cite: 11, 12]
             "financial_wisdom": wisdom
         }
 
@@ -386,23 +384,19 @@ class FinancialHealthService:
         today = date.today()
         six_months_ago = today - timedelta(days=180)
 
-        # 1. Отримуємо сирі транзакції БЕЗ агрегації в БД (щоб уникнути SUM(text))
         raw_transactions = Transaction.objects.filter(
             user=user,
             date__gte=six_months_ago
         ).select_related('category')
 
-        # Словники для групування сум по місяцях (ключ: перший день місяця)
         income_by_month = defaultdict(float)
         expense_by_month = defaultdict(float)
         all_months = set()
 
-        # 2. Розраховуємо суми в Python, використовуючи decrypted_amount
         for tx in raw_transactions:
             month_start_date = tx.date.replace(day=1)
             all_months.add(month_start_date)
 
-            # Примусово зводимо тип до нижнього регістру на випадок розбіжностей
             cat_type = tx.category.type.lower()
             amount_f = float(tx.decrypted_amount)
 
@@ -411,14 +405,12 @@ class FinancialHealthService:
             elif cat_type == 'expense':
                 expense_by_month[month_start_date] += amount_f
 
-        # Створюємо чисті списки помісячних витрат та доходів
         inc_values = list(income_by_month.values())
         exp_values = list(expense_by_month.values())
 
         total_income = sum(inc_values)
         total_expenses = sum(exp_values)
 
-        # Перевірка на реальну наявність даних (якщо місяців з витратами < 2 та доходу немає)
         if len(exp_values) < 2 and total_income == 0:
             return {
                 "status": "insufficient_data",

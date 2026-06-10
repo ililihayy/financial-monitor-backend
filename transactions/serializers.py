@@ -113,9 +113,8 @@ class CategorySerializer(serializers.ModelSerializer):
         return attrs
 
     def to_representation(self, instance):
-        """Дешифруємо назву категорії перед відправкою на фронтенд."""
         representation = super().to_representation(instance)
-        representation['name'] = instance.decrypted_name # Використовуємо властивість з моделі
+        representation['name'] = instance.decrypted_name
         return representation
 
 
@@ -181,9 +180,7 @@ class TransactionSerializer(serializers.ModelSerializer):
         return None
 
     def validate_amount(self, value):
-        """Валідація суми (тепер працюємо з текстом, який прийшов з фронту)."""
         try:
-            # Примусово перетворюємо в число для перевірки[cite: 6]
             numeric_value = Decimal(str(value))
         except (ValueError, InvalidOperation):
             raise serializers.ValidationError("Amount must be a valid number.")
@@ -191,7 +188,6 @@ class TransactionSerializer(serializers.ModelSerializer):
         if numeric_value <= 0:
             raise serializers.ValidationError("Amount must be greater than zero.")
         
-        # Повертаємо назад рядок, бо модель чекає рядок для шифрування
         return str(numeric_value)
     
     def validate_date(self, value):
@@ -248,13 +244,10 @@ class TransactionSerializer(serializers.ModelSerializer):
         return value
     
     def to_representation(self, instance):
-        """Дешифруємо всі чутливі поля транзакції."""
         representation = super().to_representation(instance)
         
-        # 1. Дешифруємо суму та перетворюємо її на число для фронтенду
         representation['amount'] = float(instance.decrypted_amount)
         
-        # 2. Дешифруємо опис
         representation['description'] = instance.decrypted_description
         
         return representation

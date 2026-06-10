@@ -210,12 +210,10 @@ class FinancialAdvisorService:
         from collections import defaultdict
 
         currency = getattr(user, "currency", "USD") or "USD"
-        # Отримуємо всі транзакції об'єктами, щоб спрацювало дешифрування[cite: 4, 8]
         base_qs = Transaction.objects.select_related("category").filter(
             user=user, date__gte=since_date
         )
 
-        # --- 1. Агрегація в Python (замість SQL SUM) ---
         agg_map = defaultdict(
             lambda: {"count": 0, "total": 0.0, "type": "Expense"})
 
@@ -236,10 +234,8 @@ class FinancialAdvisorService:
             }
             for name, data in agg_map.items()
         ]
-        # Сортуємо за сумою[cite: 8]
         aggregates.sort(key=lambda x: x["total_amount"], reverse=True)
 
-        # --- 2. Вибірка прикладів (Samples) ---
         samples = [
             {
                 "amount": float(tx.decrypted_amount),
