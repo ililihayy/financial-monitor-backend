@@ -1,24 +1,35 @@
 # Secure Financial Expense Monitoring System with Machine Learning
 
-A production-ready Django REST Framework (DRF) backend for a financial expense monitoring system with machine learning-based expense forecasting.
+A production-ready Django REST Framework (DRF) backend for a financial expense monitoring system with advanced machine learning, AI-powered financial advisory, and field-level encryption.
 
 ## Features
 
-- 🔐 **Secure Authentication**: JWT-based authentication with SimpleJWT
-- 📊 **Financial Tracking**: Income and expense tracking with categories
-- 🤖 **ML Forecasting**: Linear Regression-based expense prediction
-- 🔒 **Security Hardened**: Input validation, CORS, rate limiting, security logging
-- 📈 **Analytics Dashboard**: Balance calculations, expense aggregations, pie charts
-- 🏗️ **Service Layer Pattern**: Clean architecture with business logic in services
-- 🗄️ **PostgreSQL Ready**: Configured for Supabase/PostgreSQL
+- **Multi-Factor Authentication**: JWT-based auth with SMS 2FA (Twilio) and TOTP/OTP support
+- **Field-Level Encryption**: Fernet-based encryption for sensitive data (email, amounts, descriptions, categories)
+- **Financial Tracking**: Income and expense tracking with encrypted categories and transactions
+- **Advanced ML Services**:
+  - Expense forecasting with Linear Regression
+  - Auto-categorization using TF-IDF + Random Forest
+  - Budget alerts and financial health scoring
+- **AI Financial Advisor**: RAG pipeline with Google Gemini 2.5 Flash API for intelligent financial insights
+- **Conversation Persistence**: Multi-turn conversations with the AI advisor with history management
+- **Analytics Dashboard**: Balance calculations, expense aggregations, pie charts, trends, and insights
+- **Security Hardened**: Input validation, CORS, rate limiting, security logging, PII detection, audit trails
+- **Service Layer Pattern**: Clean architecture with business logic separated into services
+- **PostgreSQL Ready**: Configured for Supabase/PostgreSQL
+- **Daily Motivational Quotes**: Financial wisdom quotes for user motivation
 
 ## Tech Stack
 
 - **Framework**: Django 5.x, Django REST Framework (DRF)
 - **Database**: PostgreSQL (ready for Supabase)
-- **Authentication**: JWT (SimpleJWT)
+- **Authentication**: JWT (SimpleJWT), SimpleJWT for token management
+- **2FA/MFA**: Twilio (SMS), PyOTP (TOTP/OTP)
+- **Encryption**: cryptography (Fernet) for field-level encryption
+- **AI/LLM**: Google Generative AI (Gemini 2.5 Flash)
 - **ML/Data Science**: Scikit-learn, Pandas, NumPy
-- **Security**: django-cors-headers, django-environ, rate limiting
+- **Security**: django-cors-headers, django-environ, django-axes (brute-force protection), rate limiting, audit logging
+- **API Security**: Rate limiting, throttling, permission classes
 
 ## Project Structure
 
@@ -31,22 +42,39 @@ financial-monitor-backend/
 │   ├── wsgi.py                 # WSGI configuration
 │   └── asgi.py                 # ASGI configuration
 ├── accounts/                   # Authentication app
-│   ├── models.py               # CustomUser model
+│   ├── models.py               # CustomUser model (encrypted email)
 │   ├── serializers.py          # User registration/login serializers
-│   ├── views.py                # Auth endpoints (register, login, logout)
-│   └── urls.py                 # Auth URL routing
+│   ├── views.py                # Auth endpoints (register, login, 2FA, password reset, OAuth)
+│   ├── urls.py                 # Auth URL routing
+│   ├── signals.py              # Signal handlers
+│   └── services/               # Security services
+│       ├── encryption_service.py    # Fernet-based field encryption
+│       ├── audit_service.py         # Security audit logging
+│       ├── sms_service.py           # Twilio SMS 2FA
+│       ├── totp_service.py          # TOTP/OTP generation
+│       └── pii_detection_service.py # PII detection
 ├── transactions/               # Transactions app
-│   ├── models.py               # Category and Transaction models
-│   ├── serializers.py          # Transaction serializers with validation
-│   ├── views.py                # CRUD endpoints for transactions
-│   ├── services/               # Service layer (business logic)
-│   │   ├── finance_service.py  # Financial calculations
-│   │   └── ml_service.py       # ML forecasting (Linear Regression)
+│   ├── models.py               # Category, Transaction, Conversation models (with encryption)
+│   ├── serializers.py          # Transaction and conversation serializers
+│   ├── views.py                # API endpoints for categories, transactions, analytics, AI advisor
 │   ├── urls_categories.py      # Category URL routing
 │   ├── urls_transactions.py    # Transaction URL routing
-│   └── urls_analytics.py       # Analytics URL routing
+│   ├── urls_analytics.py       # Analytics URL routing
+│   └── services/               # Business logic services
+│       ├── finance_service.py       # Financial calculations (balance, aggregations, summaries)
+│       ├── ml_service.py            # ML models (forecasting, anomaly detection, auto-categorization)
+│       ├── advisor_service.py       # AI advisor RAG pipeline orchestrator
+│       ├── advisor_prompts.py       # RAG prompt building utilities
+│       ├── advisor_constants.py     # Advisor configuration constants
+│       ├── anonymization_service.py # Transaction anonymization for RAG
+│       └── quotes_service.py        # Daily financial wisdom quotes
+├── tests/                      # Test suite
+│   ├── accounts/               # Account service tests
+│   └── transactions/           # Transaction and ML service tests
+├── docs/                       # Documentation
 ├── manage.py                   # Django management script
 ├── requirements.txt            # Python dependencies
+├── pytest.ini                  # Pytest configuration
 └── README.md                   # This file
 ```
 
@@ -94,14 +122,35 @@ SECRET_KEY=your-secret-key-here-change-in-production
 ALLOWED_HOSTS=localhost,127.0.0.1
 
 # Database Configuration (PostgreSQL/Supabase)
-# Option 1: Supabase (recommended for production)
 DATABASE_URL=postgresql://postgres:[YOUR-PASSWORD]@db.[YOUR-PROJECT-REF].supabase.co:5432/postgres
-
-# Option 2: Local PostgreSQL
-# DATABASE_URL=postgresql://username:password@localhost:5432/financial_monitor
 
 # CORS Configuration
 CORS_ALLOWED_ORIGINS=https://localhost:3000,https://127.0.0.1:3000
+
+# Encryption Key (for Fernet field-level encryption)
+ENCRYPTION_KEY=your-generated-fernet-key-here
+
+# Twilio SMS 2FA Configuration
+TWILIO_ACCOUNT_SID=your-twilio-account-sid
+TWILIO_AUTH_TOKEN=your-twilio-auth-token
+TWILIO_PHONE_NUMBER=+1234567890
+
+# Google Generative AI (Gemini API)
+GEMINI_API_KEY=your-google-gemini-api-key
+
+# Email Configuration
+EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend
+EMAIL_HOST=smtp.gmail.com
+EMAIL_PORT=587
+EMAIL_USE_TLS=True
+EMAIL_HOST_USER=your-email@gmail.com
+EMAIL_HOST_PASSWORD=your-email-password
+```
+
+**To generate an encryption key:**
+
+```bash
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 ```
 
 ### 5. Supabase Setup (Recommended)
@@ -114,6 +163,7 @@ CORS_ALLOWED_ORIGINS=https://localhost:3000,https://127.0.0.1:3000
 6. Update `DATABASE_URL` in `.env`
 
 **Example Supabase DATABASE_URL:**
+
 ```
 DATABASE_URL=postgresql://postgres.xxxxxxxxxxxxx:yourpassword@aws-0-us-east-1.pooler.supabase.com:5432/postgres
 ```
@@ -134,15 +184,23 @@ python manage.py migrate
 python manage.py createsuperuser
 ```
 
-### 8. Run Development Server
+### 8. Create Cache Table (for rate limiting)
 
 ```bash
-python manage.py runserver
+python manage.py createcachetable
 ```
 
-python manage.py runserver_plus --cert-file localhost+2.pem --key-file localhost+2-key.pem
+### 9. Run Development Server
 
-The API will be available at `https://localhost:8000/`
+```bash
+# Standard development server
+python manage.py runserver
+
+# With HTTPS (if certificates are available)
+python manage.py runserver_plus --cert-file localhost+2.pem --key-file localhost+2-key.pem
+```
+
+The API will be available at `http://localhost:8000/`
 
 ## API Endpoints
 
@@ -153,11 +211,19 @@ The API will be available at `https://localhost:8000/`
 - `POST /api/auth/refresh/` - Refresh access token
 - `POST /api/auth/logout/` - Logout (blacklist refresh token)
 - `GET /api/auth/profile/` - Get current user profile
+- `POST /api/auth/password-reset/` - Request password reset
+- `POST /api/auth/sms-2fa-setup/` - Setup SMS 2FA
+- `POST /api/auth/sms-2fa-verify/` - Verify SMS 2FA code
+- `POST /api/auth/totp-setup/` - Setup TOTP (authenticator app)
+- `POST /api/auth/totp-verify/` - Verify TOTP code
 
 ### Categories (`/api/categories/`)
 
 - `GET /api/categories/` - List all categories (system + user-created)
 - `POST /api/categories/` - Create a new category
+- `GET /api/categories/{id}/` - Get category details
+- `PUT /api/categories/{id}/` - Update category
+- `DELETE /api/categories/{id}/` - Delete category (soft delete)
 
 ### Transactions (`/api/transactions/`)
 
@@ -169,14 +235,36 @@ The API will be available at `https://localhost:8000/`
 - `PATCH /api/transactions/{id}/` - Partial update transaction
 - `DELETE /api/transactions/{id}/` - Delete transaction
 
-### Analytics (`/api/analytics/`)
+### Analytics & Dashboard (`/api/analytics/`)
 
-- `GET /api/analytics/dashboard/` - Get dashboard data (totals, pie chart)
+- `GET /api/analytics/dashboard/` - Dashboard data (income, expenses, distribution)
   - Query params: `year`, `month`
-- `GET /api/analytics/forecast/` - Get ML-based expense forecast
-  - Query params: `months_back` (default: 12, range: 6-24)
-- `GET /api/analytics/balance/` - Get monthly balance
-  - Query params: `year`, `month`
+- `GET /api/analytics/forecast/` - ML-based expense forecast
+  - Query params: `months_back` (default: 12)
+- `GET /api/analytics/balance/` - Monthly balance trend
+  - Query params: `months_back` (default: 12)
+- `GET /api/analytics/trends/` - Expense trends over time
+- `GET /api/analytics/insights/` - AI-generated spending insights
+
+### Machine Learning Analytics (`/api/analytics/`)
+
+- `POST /api/analytics/auto-categorize/` - Auto-categorize transactions by description
+- `POST /api/analytics/budget-alerts/` - Generate budget alerts
+- `GET /api/analytics/health-score/` - Financial health scoring
+
+### AI Financial Advisor (`/api/advisor/`)
+
+- `POST /api/advisor/ask/` - Ask the AI advisor a financial question
+  - Daily limit: 7 queries per user
+  - Query params: `query`, `conversation_id` (optional), `lookback_days` (default: 60)
+- `GET /api/advisor/conversations/` - List advisor conversations
+- `GET /api/advisor/conversations/{id}/` - Get conversation details with message history
+- `DELETE /api/advisor/conversations/{id}/` - Delete a conversation
+
+### Utility (`/api/quotes/`)
+
+- `GET /api/quotes/daily/` - Get daily motivational financial quote
+- `GET /api/quotes/random/` - Get random financial quote
 
 ## API Usage Examples
 
@@ -205,6 +293,7 @@ curl -X POST https://localhost:8000/api/auth/login/ \
 ```
 
 Response:
+
 ```json
 {
   "user": {
@@ -249,6 +338,7 @@ curl -X GET "https://localhost:8000/api/analytics/forecast/?months_back=12" \
 ```
 
 Response:
+
 ```json
 {
   "predicted_amount": "1250.50",
@@ -261,35 +351,83 @@ Response:
 
 ## Machine Learning Implementation
 
-The ML forecasting uses **Linear Regression** from Scikit-learn:
+The system includes multiple ML models for financial intelligence:
 
-1. **Data Preparation**: Groups user expenses by month for the last 6-12 months
-2. **Features (X)**: Month index (0, 1, 2, ...)
-3. **Target (y)**: Total expenses per month
-4. **Model**: Linear Regression (y = a*X + b)
-5. **Prediction**: Next month's expense
-6. **Confidence Score**: R-squared (coefficient of determination, 0-1)
+### 1. Expense Forecasting (Linear Regression)
 
-The service requires at least 3 months of historical data for reliable predictions.
+- **Purpose**: Predict next month's expenses
+- **Algorithm**: Linear Regression (y = a\*X + b)
+- **Data**: Monthly expense aggregates for last 6-12 months
+- **Output**: Predicted amount + confidence score (R²)
+- **Requirements**: At least 3 months of historical data
+
+### 2. Auto-Categorization (TF-IDF + Random Forest)
+
+- **Purpose**: Automatically suggest category for transactions
+- **Algorithm**: TF-IDF vectorizer + Random Forest classifier
+- **Input**: Transaction description
+- **Output**: Suggested category with confidence
+
+### 3. Budget Alerts
+
+- **Purpose**: Alert users when spending approaches budget
+- **Logic**: Compares monthly spending against configured budgets
+- **Output**: Alert with overspend percentage and recommendations
+
+### 4. Financial Health Score
+
+- **Purpose**: Calculate user's financial health (0-100)
+- **Metrics**: Income/expense ratio, savings rate, spending patterns
+- **Output**: Overall score + detailed breakdown
+
+### 5. AI-Powered Financial Advisor (RAG Pipeline)
+
+- **Purpose**: Provide intelligent financial advice based on user data
+- **Pipeline**:
+  1. Intent classification (budget, spending patterns, forecasts, recommendations)
+  2. Relevant transaction retrieval with anonymization
+  3. ML context injection (forecasts, anomalies, trends)
+  4. Dynamic prompt building based on intent
+  5. Gemini 2.5 Flash API call with RAG context
+- **Safety**: Daily limit of 7 queries per user
+- **Privacy**: Transactions anonymized before sending to LLM
 
 ## Security Features
 
-- ✅ **Input Validation**: Strict serializers with field-level validation
-- ✅ **CORS Configuration**: Allowed origins for React frontend
-- ✅ **Rate Limiting**: 
-  - Login: 5 requests/minute
-  - ML Forecast: 20 requests/hour
+- **Field-Level Encryption**: Fernet-based encryption for:
+  - User email in accounts
+  - Transaction amounts, descriptions
+  - Category names
+- **Multi-Factor Authentication**:
+  - SMS-based 2FA via Twilio
+  - TOTP/OTP support for authenticator apps
+- **Input Validation**: Strict serializers with field-level validation
+- **CORS Configuration**: Restricted origins for React frontend
+- **Rate Limiting & Throttling**:
+  - Login: 5 requests/minute (with django-axes brute-force protection)
+  - AI Advisor: 7 queries/day per user
+  - Forecast: 20 requests/hour
   - Default: 100 requests/hour
-- ✅ **Security Logging**: Middleware logs 401/403 errors
-- ✅ **Environment Variables**: All secrets loaded from `.env`
-- ✅ **JWT Authentication**: Secure token-based authentication
-- ✅ **Password Validation**: Django's built-in password validators
+- **Security Logging**: Audit trails for login attempts, 2FA events, sensitive operations
+- **Environment Variables**: All secrets loaded from `.env`, never hardcoded
+- **JWT Authentication**: SimpleJWT with refresh/access tokens (15min access, 7-day refresh)
+- **Password Security**: Django's password validators, enforced complexity
+- **PII Detection**: Detects and flags personally identifiable information
+- **Permission Classes**: IsAuthenticated enforced on protected endpoints
+- **HTTPS Ready**: SSL/TLS support for production
 
 ## Development
 
 ### Running Tests
 
 ```bash
+# Using pytest
+pytest tests/ -v --reuse-db
+
+# Using Docker Compose
+docker compose exec backend pytest tests/ -v --reuse-db
+
+# Using Django test runner
 python manage.py test
 ```
 
@@ -303,44 +441,106 @@ python manage.py migrate
 ### Accessing Django Admin
 
 1. Create superuser: `python manage.py createsuperuser`
-2. Visit: `https://localhost:8000/admin/`
+2. Visit: `http://localhost:8000/admin/`
 3. Login with superuser credentials
+
+### Populate Test Data
+
+```bash
+# Populate realistic transaction data for testing
+python manage.py populate_lilia_data
+```
+
+## Docker Deployment
+
+### Using Docker Compose
+
+```bash
+# Build and start containers
+docker compose up --build -d
+
+# Run migrations
+docker compose exec backend python manage.py migrate
+
+# Create superuser
+docker compose exec backend python manage.py createsuperuser
+
+# Run tests
+docker compose exec backend pytest tests/ -v --reuse-db
+```
 
 ## Production Deployment
 
 ### Important Settings for Production
 
 1. **Update `.env` file:**
+
    ```env
    DEBUG=False
    SECRET_KEY=<generate-strong-secret-key>
    ALLOWED_HOSTS=yourdomain.com,www.yourdomain.com
+
+   # Database: Use managed PostgreSQL/Supabase
+   DATABASE_URL=<production-database-url>
+
+   # Encryption key: Generate fresh key
+   ENCRYPTION_KEY=<fresh-fernet-key>
+
+   # API keys: Use production credentials
+   GEMINI_API_KEY=<production-key>
+   TWILIO_ACCOUNT_SID=<production-sid>
+   TWILIO_AUTH_TOKEN=<production-token>
    ```
 
-2. **Database**: Use Supabase or a managed PostgreSQL service
+2. **Database**: Use Supabase or managed PostgreSQL service
 
-3. **Static Files**: Collect static files
+3. **Static Files**: Collect and serve via CDN
+
    ```bash
-   python manage.py collectstatic
+   python manage.py collectstatic --noinput
    ```
 
-4. **SSL/HTTPS**: Ensure your deployment uses HTTPS
+4. **SSL/HTTPS**: Enforce HTTPS in production
 
 5. **Environment Variables**: Never commit `.env` file to version control
 
-## License
+6. **Security Checklist**:
+   - [ ] Enable SECURE_SSL_REDIRECT
+   - [ ] Set SECURE_HSTS_SECONDS
+   - [ ] Configure CSRF_TRUSTED_ORIGINS
+   - [ ] Use managed secrets (e.g., AWS Secrets Manager)
+   - [ ] Enable database backups
+   - [ ] Set up monitoring and alerting
 
-This project is part of a diploma work: "Secure Financial Expense Monitoring System with Machine Learning".
+## API Response Examples
 
-## Author
+### Login Response with 2FA
 
-Diploma Project - Financial Monitor Backend
+```json
+{
+  "user": {
+    "id": 1,
+    "email": "user@example.com",
+    "currency_preference": "USD",
+    "is_2fa_enabled": true,
+    "date_joined": "2024-01-15T10:30:00Z"
+  },
+  "tokens": {
+    "refresh": "eyJ0eXAiOiJKV1QiLCJhbGc...",
+    "access": "eyJ0eXAiOiJKV1QiLCJhbGc..."
+  },
+  "requires_2fa": true
+}
+```
 
-docker compose up --build -d
-Bash
-docker compose exec backend python manage.py migrate
-docker compose exec backend python manage.py createcachetable
-docker compose exec backend python manage.py createsuperuser
+### AI Advisor Response
 
-
-docker compose exec backend env DJANGO_SETTINGS_MODULE=financial_monitor.settings pytest tests/ -v --reuse-db
+```json
+{
+  "advice": "Based on your spending patterns over the last 60 days...",
+  "conversation_id": 123,
+  "intent": "spending_analysis",
+  "confidence": 0.95,
+  "timestamp": "2024-06-11T10:30:00Z"
+}
+```
