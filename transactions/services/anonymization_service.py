@@ -43,6 +43,10 @@ import random
 import re
 from datetime import date, datetime
 from typing import Any
+import logging
+
+
+logger = logging.getLogger('security')
 
 # ---------------------------------------------------------------------------
 # Type alias
@@ -76,7 +80,6 @@ class AnonymizationService:
     _RE_CARD: re.Pattern = re.compile(
         r'\b(?:\d[ \-]?){13,19}\d\b'
     )
-    # Phone: optional country code, optional area code, local number.
     _RE_PHONE: re.Pattern = re.compile(
         r'(?<!\d)'
         r'(?:\+?\d{1,3}[\s.\-]?)?'
@@ -85,7 +88,6 @@ class AnonymizationService:
         r'(?!\d)'
     )
 
-    # Ordered so that broader patterns (card, IBAN) do not shadow email/phone.
     _PII_RULES: list[tuple[re.Pattern, str]] = [
         (_RE_EMAIL, '[EMAIL]'),
         (_RE_IBAN,  '[IBAN]'),
@@ -259,6 +261,7 @@ class AnonymizationService:
 
         description = str(tx.get('description') or '')
         description = self._scrub_pii(description)
+        logger.warning(f"DLP PROTECTED PAYLOAD FOR GEMINI: {description}")
         description = self._abstract_merchant(description)
 
         return (

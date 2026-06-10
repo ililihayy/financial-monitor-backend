@@ -70,7 +70,6 @@ class AuditService:
             'detail': detail or {},
         }
 
-        # Compute checksum over the serialised payload (excluding checksum itself)
         payload = json.dumps(entry, sort_keys=True, default=str)
         entry['checksum'] = cls._compute_checksum(payload)
 
@@ -88,7 +87,6 @@ class AuditService:
         entry['checksum'] = checksum  # restore for caller
         return hmac.compare_digest(checksum, expected)
 
-    # ---- Convenience helpers for common actions ----
 
     @classmethod
     def log_password_change(cls, user, ip: str):

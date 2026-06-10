@@ -208,7 +208,6 @@ ML models are **stateless / in-process**: re-trained on every request using the 
 | GET                  | `/api/analytics/balance/`           | Required | Monthly balance                       |
 | GET                  | `/api/analytics/insights/`          | Required | Rule-based spending insights          |
 | GET                  | `/api/analytics/trend/`             | Required | Monthly income/expense trend          |
-| GET                  | `/api/analytics/anomalies/`         | Required | Isolation Forest anomaly detection    |
 | POST                 | `/api/analytics/categorize/`        | Required | Auto-categorize by description        |
 | GET                  | `/api/analytics/budget-alert/`      | Required | Budget velocity + hit-date prediction |
 | GET                  | `/api/analytics/health-score/`      | Required | Financial health score 0-100          |

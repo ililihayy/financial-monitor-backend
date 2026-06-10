@@ -30,10 +30,6 @@ from .quotes_service import QuotesService
 logger = logging.getLogger('security')
 
 
-# ---------------------------------------------------------------------------
-# 1. Existing: Linear Regression Forecast
-# ---------------------------------------------------------------------------
-
 class MLForecastService:
     @staticmethod
     def get_comprehensive_analysis(user, current_balance):
@@ -42,7 +38,9 @@ class MLForecastService:
         six_months_ago = today - timedelta(days=365)
         # Замість .annotate(total=Sum('amount')) робимо так:
         raw_txs = Transaction.objects.filter(
-            user=user, category__type='Expense', date__gte=six_months_ago
+            user=user,
+            category__type__iexact='expense',  # iexact ігнорує велика/мала літера
+            date__gte=six_months_ago
         ).select_related('category')
 
         temp_data = {}
@@ -91,23 +89,14 @@ class MLForecastService:
             },
             "historical_trends": historical,
             # ЗАМІСТЬ математики повертаємо цитату[cite: 11, 12]
-            "financial_wisdom": wisdom 
+            "financial_wisdom": wisdom
         }
 
 
-# ---------------------------------------------------------------------------
-# 2. Anomaly Detection — Isolation Forest
-# ---------------------------------------------------------------------------
-
 class AnomalyDetectionService:
     """
-    Flags suspicious transactions using sklearn's IsolationForest.
-
-    Features per transaction:
-    - amount (normalised against the user's mean)
-    - day_of_week (0-6)
-    - day_of_month (1-31)
-    - hour_of_creation (0-23, from created_at)
+    Flags suspicious transactions using Isolation Forest.
+    Features: amount, day_of_week, day_of_month, hour_of_creation.
     """
 
     MIN_SAMPLES = 20  # Need enough history for meaningful anomaly detection
@@ -223,16 +212,9 @@ class AnomalyDetectionService:
         return np.array(rows), valid_txns
 
 
-# ---------------------------------------------------------------------------
-# 3. Auto-Categorization — TF-IDF + Random Forest
-# ---------------------------------------------------------------------------
-
 class AutoCategorizationService:
     """
-    Predicts the most likely Category for a transaction based on its description.
-
-    Uses TF-IDF vectorisation of descriptions → RandomForestClassifier.
-    Trained on the user's own labelled transactions.
+    Predicts category for a transaction using TF-IDF + Random Forest.
     """
 
     MIN_TRAINING_SAMPLES = 30
@@ -309,14 +291,9 @@ class AutoCategorizationService:
         return False
 
 
-# ---------------------------------------------------------------------------
-# 4. Predictive Budget Alerts
-# ---------------------------------------------------------------------------
-
 class BudgetAlertService:
     """
-    Predicts when the user will exhaust their monthly budget based on
-    current spending velocity.
+    Predicts monthly budget exhaustion based on spending velocity.
     """
 
     @staticmethod
@@ -396,47 +373,52 @@ class BudgetAlertService:
         }
 
 
-# ---------------------------------------------------------------------------
-# 5. Financial Health Score (0 – 100)
-# ---------------------------------------------------------------------------
-
 class FinancialHealthService:
     """
-    Composite financial health score derived from four sub-scores:
-
-    1. Savings Rate Score (0-30 pts):  (income-expenses)/income
-    2. Expense Volatility Score (0-25 pts):  lower monthly stddev = better
-    3. Budget Adherence Score (0-25 pts):  staying under monthly budget
-    4. Consistency Score (0-20 pts):  regular transaction tracking
+    Composite financial health score (0-100) from four sub-scores:
+    1. Savings Rate (0-30), 2. Expense Volatility (0-25),
+    3. Budget Adherence (0-25), 4. Consistency (0-20).
     """
 
     @staticmethod
     def calculate_health_score(user) -> Dict:
+        from collections import defaultdict
         today = date.today()
         six_months_ago = today - timedelta(days=180)
 
-        # --- Gather aggregated monthly data ---
-        monthly_income = list(
-            Transaction.objects.filter(
-                user=user, category__type='Income', date__gte=six_months_ago,
-            ).annotate(m=TruncMonth('date')).values('m').annotate(
-                total=Sum('amount'),
-            ).order_by('m')
-        )
-        monthly_expenses = list(
-            Transaction.objects.filter(
-                user=user, category__type='Expense', date__gte=six_months_ago,
-            ).annotate(m=TruncMonth('date')).values('m').annotate(
-                total=Sum('amount'),
-            ).order_by('m')
-        )
+        # 1. Отримуємо сирі транзакції БЕЗ агрегації в БД (щоб уникнути SUM(text))
+        raw_transactions = Transaction.objects.filter(
+            user=user,
+            date__gte=six_months_ago
+        ).select_related('category')
 
-        inc_values = [float(m['total'] or 0) for m in monthly_income]
-        exp_values = [float(m['total'] or 0) for m in monthly_expenses]
+        # Словники для групування сум по місяцях (ключ: перший день місяця)
+        income_by_month = defaultdict(float)
+        expense_by_month = defaultdict(float)
+        all_months = set()
+
+        # 2. Розраховуємо суми в Python, використовуючи decrypted_amount
+        for tx in raw_transactions:
+            month_start_date = tx.date.replace(day=1)
+            all_months.add(month_start_date)
+
+            # Примусово зводимо тип до нижнього регістру на випадок розбіжностей
+            cat_type = tx.category.type.lower()
+            amount_f = float(tx.decrypted_amount)
+
+            if cat_type == 'income':
+                income_by_month[month_start_date] += amount_f
+            elif cat_type == 'expense':
+                expense_by_month[month_start_date] += amount_f
+
+        # Створюємо чисті списки помісячних витрат та доходів
+        inc_values = list(income_by_month.values())
+        exp_values = list(expense_by_month.values())
 
         total_income = sum(inc_values)
         total_expenses = sum(exp_values)
 
+        # Перевірка на реальну наявність даних (якщо місяців з витратами < 2 та доходу немає)
         if len(exp_values) < 2 and total_income == 0:
             return {
                 "status": "insufficient_data",
@@ -446,19 +428,17 @@ class FinancialHealthService:
         # 1. Savings Rate Score (0-30)
         if total_income > 0:
             savings_rate = (total_income - total_expenses) / total_income
-            # 30 % savings → 30 pts
             savings_score = max(0, min(30, round(savings_rate * 100)))
         else:
             savings_score = 0
-        savings_rate_pct = round(
-            (savings_rate if total_income > 0 else 0) * 100, 1)
+            savings_rate = 0
+        savings_rate_pct = round(savings_rate * 100, 1)
 
         # 2. Expense Volatility Score (0-25)
         if len(exp_values) >= 2:
             exp_std = float(np.std(exp_values))
             exp_mean = float(np.mean(exp_values)) or 1.0
             cv = exp_std / exp_mean  # Coefficient of variation
-            # CV < 0.1 → 25 pts, CV > 0.5 → 0 pts (linear scale)
             volatility_score = max(0, min(25, round(25 * (1 - cv / 0.5))))
         else:
             cv = 0
@@ -474,13 +454,6 @@ class FinancialHealthService:
             budget_score = 15  # neutral when no budget set
 
         # 4. Consistency Score (0-20)
-        # How many of the last 6 months had at least one transaction?
-        all_months = set()
-        for m in monthly_income:
-            all_months.add(m['m'])
-        for m in monthly_expenses:
-            all_months.add(m['m'])
-
         total_possible_months = 6
         active_months = len(all_months)
         consistency_score = round((active_months / total_possible_months) * 20)
@@ -513,17 +486,10 @@ class FinancialHealthService:
             },
             "period_months": total_possible_months,
         }
-
-
-# ---------------------------------------------------------------------------
-# Background retraining helper (lightweight — uses threading, no Celery)
-# ---------------------------------------------------------------------------
-
+    
 class MLRetrainingService:
     """
-    Fire-and-forget background ML tasks using daemon threads.
-    Suitable for light workloads; for heavy production use swap to
-    django-rq or Celery.
+    Background ML retraining using daemon threads.
     """
 
     @staticmethod

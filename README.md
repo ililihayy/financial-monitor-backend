@@ -341,3 +341,6 @@ Bash
 docker compose exec backend python manage.py migrate
 docker compose exec backend python manage.py createcachetable
 docker compose exec backend python manage.py createsuperuser
+
+
+docker compose exec backend env DJANGO_SETTINGS_MODULE=financial_monitor.settings pytest tests/ -v --reuse-db

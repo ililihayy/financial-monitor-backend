@@ -22,7 +22,6 @@ class FinanceService:
     def calculate_monthly_balance(user, year: int, month: int) -> Decimal:
         from transactions.models import Transaction
 
-        # Отримуємо транзакції замість агрегації в БД[cite: 7]
         transactions = Transaction.objects.filter(
             user=user,
             date__year=year,
@@ -30,18 +29,17 @@ class FinanceService:
         ).select_related('category')
 
         income = sum(
-            tx.decrypted_amount for tx in transactions if tx.category.type == 'Income')
+            tx.decrypted_amount for tx in transactions if tx.category.type.lower() == 'income')
         expenses = sum(
-            tx.decrypted_amount for tx in transactions if tx.category.type == 'Expense')
+            tx.decrypted_amount for tx in transactions if tx.category.type.lower() == 'expense')
 
         return income - expenses
 
     @staticmethod
-    def aggregate_expenses_by_category(user, year: int, month: int, category_type: str = 'Expense') -> List[Dict]:
+    def aggregate_expenses_by_category(user, year: int, month: int, category_type: str = 'expense') -> List[Dict]:
         from transactions.models import Transaction, Category
         from collections import defaultdict
 
-        # Отримуємо всі транзакції за місяць[cite: 7]
         transactions = Transaction.objects.filter(
             user=user,
             category__type=category_type,
@@ -49,7 +47,6 @@ class FinanceService:
             date__month=month
         ).select_related('category')
 
-        # Групуємо в коді Python[cite: 7]
         cat_map = defaultdict(
             lambda: {'total': Decimal('0.00'), 'count': 0, 'obj': None})
 
@@ -63,7 +60,6 @@ class FinanceService:
         for cat_id, data in cat_map.items():
             result.append({
                 'category_id': cat_id,
-                # Дешифрована назва[cite: 1]
                 'category_name': data['obj'].decrypted_name,
                 'category_type': data['obj'].type,
                 'icon_identifier': data['obj'].icon_identifier,
@@ -84,9 +80,9 @@ class FinanceService:
         ).select_related('category')
 
         income = sum(
-            tx.decrypted_amount for tx in transactions if tx.category.type == 'Income')
+            tx.decrypted_amount for tx in transactions if tx.category.type.lower() == 'income')
         expenses = sum(
-            tx.decrypted_amount for tx in transactions if tx.category.type == 'Expense')
+            tx.decrypted_amount for tx in transactions if tx.category.type.lower() == 'expense')
 
         return {
             'total_income': income,
@@ -115,7 +111,7 @@ class FinanceService:
             }
         """
         expense_data = FinanceService.aggregate_expenses_by_category(
-            user, year, month, category_type='Expense'
+            user, year, month, category_type='expense'
         )
 
         labels = [item['category_name'] for item in expense_data]

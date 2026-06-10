@@ -1,11 +1,12 @@
 """
-Realistic UKRAINE-based financial data generator (in USD) for lilipushkar15@gmail.com.
-Covers 9 months (270 days) of transactions with local merchants like Silpo, Bolt, and OKKO.
+Realistic UKRAINE-based financial data generator (in UAH) for lilipushkar15@gmail.com.
+Covers 9 months (270 days) of transactions with local merchants in Ukrainian Hryvnia.
 """
 
 import random
 from datetime import date, timedelta
 from django.core.management.base import BaseCommand
+from django.utils import timezone
 from accounts.models import CustomUser
 from transactions.models import Category, Transaction
 
@@ -13,7 +14,7 @@ random.seed(42)
 
 
 class Command(BaseCommand):
-    help = 'Fills lilipushkar15@gmail.com with 9 months of Ukraine-based USD data'
+    help = 'Fills lilipushkar15@gmail.com with 9 months of Ukraine-based UAH data'
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -28,12 +29,15 @@ class Command(BaseCommand):
         try:
             user = CustomUser.objects.get_by_natural_key(email)
             self.stdout.write(f'Found user: {email}')
+            if user.currency_preference != 'UAH':
+                user.currency_preference = 'UAH'
+                user.save()
         except CustomUser.DoesNotExist:
             user = CustomUser.objects.create_user(
                 email=email,
                 password='TestPass123!',
                 nickname='Lilia',
-                currency_preference='USD',
+                currency_preference='UAH',
                 is_active=True,
             )
             self.stdout.write(self.style.SUCCESS(f'Created user: {email}'))
@@ -42,155 +46,141 @@ class Command(BaseCommand):
             deleted, _ = Transaction.objects.filter(user=user).delete()
             self.stdout.write(f'Deleted {deleted} existing transactions.')
 
+        # Synchronize with frontend (category types: 'income' and 'expense')
         def get_cat(name, c_type, icon):
             return Category.objects.get_or_create(
                 name=name,
                 user=None,
-                defaults={'type': c_type, 'icon_identifier': icon},
+                defaults={'type': c_type.lower(), 'icon_identifier': icon},
             )[0]
 
         cats = {
-            'Salary':        get_cat('Salary',        'Income',  'Briefcase'),
-            'Freelance':     get_cat('Freelance',      'Income',  'Laptop'),
-            'Rent':          get_cat('Rent',           'Expense', 'Home'),
-            'Food':          get_cat('Food',           'Expense', 'UtensilsCrossed'),
-            'Transport':     get_cat('Transport',      'Expense', 'Car'),
-            'Shopping':      get_cat('Shopping',       'Expense', 'ShoppingBag'),
-            'Medical':       get_cat('Medical',        'Expense', 'Heart'),
-            'Utilities':     get_cat('Utilities',      'Expense', 'Zap'),
-            'Entertainment': get_cat('Entertainment',  'Expense', 'Music'),
-            'Education':     get_cat('Education',      'Expense', 'BookOpen'),
+            'Salary':        get_cat('Salary',        'income',  'Briefcase'),
+            'Freelance':     get_cat('Freelance',     'income',  'Laptop'),
+            'Rent':          get_cat('Rent',          'expense', 'Home'),
+            'Food':          get_cat('Food',          'expense', 'UtensilsCrossed'),
+            'Transport':     get_cat('Transport',     'expense', 'Car'),
+            'Shopping':      get_cat('Shopping',      'expense', 'ShoppingBag'),
+            'Medical':       get_cat('Medical',       'expense', 'Heart'),
+            'Utilities':     get_cat('Utilities',     'expense', 'Zap'),
+            'Entertainment': get_cat('Entertainment', 'expense', 'Music'),
+            'Education':     get_cat('Education',     'expense', 'BookOpen'),
         }
 
         today = date.today()
-        # 9 місяців = приблизно 270 днів
         start_date = today - timedelta(days=270)
 
         self.stdout.write(f'Generating data from {start_date} to {today}...')
 
-        # --- Допоміжні списки ---
         ukraine_food = [
-            ('Silpo — Groceries', 35.00),
-            ('ATB-Market — Daily shopping', 15.00),
-            ('Novus — Weekly groceries', 50.00),
-            ('Aroma Kava — Flat White', 2.10),
-            ('Idealist Coffee — Breakfast', 8.50),
-            ('Puzata Hata — Lunch', 6.00),
-            ('Milk Bar — Dessert', 12.00),
-            ('Glovo — McDonalds Delivery', 11.00),
-            ('Bolt Food — Sushi order', 22.00),
-            ('Lviv Croissants', 4.50),
+            ('Сільпо — Продукти', 1450.00),
+            ('АТБ-Маркет — Щоденні закупи', 620.00),
+            ('Новус — Супермаркет', 2100.00),
+            ('Aroma Kava — Флет Вайт', 85.00),
+            ('Idealist Coffee — Сніданок', 360.00),
+            ('Пузата Хата — Обід', 240.00),
+            ('Milk Bar — Десерти', 480.00),
+            ('Glovo — Доставка McDonalds', 450.00),
+            ('Bolt Food — Суші сет', 890.00),
+            ('Львівські Круасани', 180.00),
         ]
 
         ukraine_transport = [
-            ('Bolt — Ride to work', 4.50),
-            ('Uklon — Evening trip', 6.00),
-            ('Kyiv Metro — Card Top-up', 5.00),
-            ('OKKO — Fuel (A-95)', 45.00),
-            ('WOG — Fuel & Coffee', 48.00),
+            ('Bolt — Поїздка на роботу', 180.00),
+            ('Uklon — Вечірня поїздка', 240.00),
+            ('Київський Метрополітен — Поповнення', 200.00),
+            ('ОККО — Паливо (А-95)', 1800.00),
+            ('WOG — Паливо та кава', 1950.00),
         ]
 
         ukraine_utilities = [
-            ('Yasno — Electricity bill', 18.00),
-            ('Naftogaz — Gas bill', 12.00),
-            ('Kyivvodokanal — Water service', 10.00),
-            ('Kyivstar — Mobile plan', 6.50),
-            ('Lanet — Internet 1Gbps', 8.00),
+            ('Yasno — Електроенергія', 750.00),
+            ('Нафтогаз — Газопостачання', 480.00),
+            ('Київводоканал — Водопостачання', 420.00),
+            ('Київстар — Мобільний тариф', 275.00),
+            ('Ланет — Інтернет 1 Гбіт/с', 330.00),
         ]
 
         shopping_items = [
-            ('Rozetka — Household items', 25.00),
-            ('Zara — Ocean Plaza', 65.00),
-            ('Epicentr — Home improvement', 40.00),
-            ('Makeup.com.ua — Cosmetics', 30.00),
-            ('Prom.ua — Order', 15.00),
+            ('Rozetka — Товари для дому', 1100.00),
+            ('Zara — Ocean Plaza', 2600.00),
+            ('Епіцентр — Матеріали/Побут', 1650.00),
+            ('Makeup.com.ua — Косметика', 1200.00),
+            ('Prom.ua — Замовлення', 600.00),
         ]
 
-        # --- Генерація ---
         current_date = start_date
         while current_date <= today:
-            # 1. ДОХОДИ (Зарплата 1 та 15 числа)
             if current_date.day == 1 or current_date.day == 15:
                 Transaction.objects.create(
                     user=user, category=cats['Salary'],
-                    amount=1800.00, date=current_date,
-                    description='Monthly Salary — Tech Company'
+                    amount=36000.00, date=current_date,
+                    description='Заробітна плата — ІТ Компанія'
                 )
 
-            # 2. ОРЕНДА (1 числа)
             if current_date.day == 1:
                 Transaction.objects.create(
                     user=user, category=cats['Rent'],
-                    amount=650.00, date=current_date,
-                    description='Rent — Apartment in Kyiv'
+                    amount=18000.00, date=current_date,
+                    description='Оренда квартири'
                 )
 
-            # 3. КОМУНАЛКА (10 числа)
             if current_date.day == 10:
                 for name, price in ukraine_utilities:
                     Transaction.objects.create(
                         user=user, category=cats['Utilities'],
-                        amount=price + random.uniform(-2, 3),
+                        amount=round(price + random.uniform(-40, 60), 2),
                         date=current_date, description=name
                     )
 
-            # 4. ЩОДЕННІ ВИТРАТИ (Їжа та Транспорт)
-            # Кава або дрібна їжа майже щодня
-            if random.random() < 0.8:
+            if random.random() < 0.85:
                 name, price = random.choice(ukraine_food[:5])
                 Transaction.objects.create(
                     user=user, category=cats['Food'],
-                    amount=round(price + random.uniform(-1, 2), 2),
+                    amount=round(price + random.uniform(-30, 80), 2),
                     date=current_date, description=name
                 )
 
-            # Таксі або транспорт 3-4 рази на тиждень
-            if random.random() < 0.4:
+            if random.random() < 0.45:
                 name, price = random.choice(ukraine_transport)
                 Transaction.objects.create(
                     user=user, category=cats['Transport'],
-                    amount=round(price + random.uniform(-1, 5), 2),
+                    amount=round(price + random.uniform(-25, 150), 2),
                     date=current_date, description=name
                 )
 
-            # 5. ТИЖНЕВІ ВИТРАТИ
-            # Великі закупи в Сільпо/Новус по вихідних
-            if current_date.weekday() >= 5 and random.random() < 0.7:
+            if current_date.weekday() >= 5 and random.random() < 0.75:
                 Transaction.objects.create(
                     user=user, category=cats['Food'],
-                    amount=round(random.uniform(40, 90), 2),
-                    date=current_date, description='Silpo — Weekly Groceries'
+                    amount=round(random.uniform(1600, 3800), 2),
+                    date=current_date, description='Сільпо — Щотижневі закупи'
                 )
 
-            # Шопінг раз на два тижні
             if current_date.day in [14, 28] and random.random() < 0.5:
                 name, price = random.choice(shopping_items)
                 Transaction.objects.create(
                     user=user, category=cats['Shopping'],
-                    amount=round(price + random.uniform(-5, 20), 2),
+                    amount=round(price + random.uniform(-200, 700), 2),
                     date=current_date, description=name
                 )
 
-            # 6. ВИПАДКОВІ ВИТРАТИ
-            # Медицина (Добробут / Аптека)
             if random.random() < 0.03:
                 Transaction.objects.create(
                     user=user, category=cats['Medical'],
-                    amount=round(random.uniform(20, 150), 2),
-                    date=current_date, description='Dobrobut Clinic — Consultation'
+                    amount=round(random.uniform(400, 4500), 2),
+                    date=current_date, description='Клініка Добробут — Консультація та ліки'
                 )
 
-            # Розваги (Кіно / Вечірка)
             if random.random() < 0.05:
                 Transaction.objects.create(
                     user=user, category=cats['Entertainment'],
-                    amount=round(random.uniform(15, 60), 2),
-                    date=current_date, description='Multiplex — Movie & Popcorn'
+                    amount=round(random.uniform(500, 2200), 2),
+                    date=current_date, description='Планета Кіно — Квитки та попкорн'
                 )
 
             current_date += timedelta(days=1)
 
         final_count = Transaction.objects.filter(user=user).count()
         self.stdout.write(self.style.SUCCESS(
-            f'Successfully generated {final_count} transactions for 9 months.'
+            f'Successfully generated {final_count} transactions in UAH currency for 9 months.'
         ))

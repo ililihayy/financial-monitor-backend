@@ -1,8 +1,5 @@
 """
-Quotes Service — Daily financial wisdom and motivational quotes.
-
-Provides random or daily-rotated financial quotes to inspire users
-on their financial journey.
+Quotes Service — Financial wisdom and motivational quotes.
 """
 
 import logging

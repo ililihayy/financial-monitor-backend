@@ -43,10 +43,6 @@ class FinancialAdvisorService:
 
     _anonymizer: AnonymizationService = AnonymizationService()
 
-    # =========================================================================
-    # ① Public entry point
-    # =========================================================================
-
     @classmethod
     def get_advice(
         cls,
@@ -86,7 +82,6 @@ class FinancialAdvisorService:
                 "usage_tracker": f"{usage_count}/{daily_limit}"
             }
 
-        # ── Stage ①: Intent guardrail ─────────────────────────────────────────
         if not cls._is_finance_query(user_query):
             logger.info(
                 "FinancialAdvisorService: out-of-scope query rejected "
@@ -103,7 +98,7 @@ class FinancialAdvisorService:
                 ),
             }
 
-        # ── Stage ②: RAG retrieval ────────────────────────────────────────────
+        # Stage ②: RAG retrieval
         since_date, period_label = cls._detect_timeframe(user_query)
         tx_data = cls._retrieve_transactions(user, since_date)
         ml_context = cls._retrieve_ml_context(user)
@@ -118,24 +113,21 @@ class FinancialAdvisorService:
                 ),
             }
 
-        # ── Stage ③: Anonymization — the Privacy Gate ─────────────────────────
+        # Stage ③: Anonymization
         #
-        # Only the sample slice (≤15 rows) passes through the anonymizer for
-        # temporal context.  Exact totals come from SQL aggregates computed
-        # in Stage ② and are injected as a pre-computed table — so the LLM
-        # never sees raw high-value amounts that trigger Gemini's
-        # financial-advice safety filters.
+        # Only the sample slice passes through the anonymizer.
+        # Exact totals come from SQL aggregates and are injected as a pre-computed table.
         anonymised_samples = cls._anonymizer.anonymize(
             tx_data["samples"],
             reference_date=date.today(),
         )
 
-        # ── Stage ④: Prompt construction ─────────────────────────────────────
+        # Stage ④: Prompt construction
         system_prompt = build_system_prompt(
             tx_data["aggregates"], anonymised_samples, ml_context, period_label,
             user_query=user_query)
 
-        # ── Stage ⑤: LLM call ────────────────────────────────────────────────
+        # Stage ⑤: LLM call
         try:
             reply = cls._call_llm(system_prompt, user_query)
             new_usage = usage_count + 1
@@ -161,46 +153,27 @@ class FinancialAdvisorService:
         )
         return {"status": "success", "reply": reply}
 
-    # =========================================================================
-    # ①  Intent guardrail
-    # =========================================================================
-
+    # Intent guardrail
     @classmethod
     def _is_finance_query(cls, query: str) -> bool:
         """
-        Two-stage classifier that decides whether a query is finance-related.
-
-        Stage A — Denylist (hard blockers):
-            Any match against ``_OOT_DENYLIST`` causes immediate rejection.
-            This guards against adversarial prompts that embed an OOT topic
-            inside what otherwise looks like a financial question.
-
-        Stage B — Allowlist (affirmative signal):
-            The query must contain at least ``_MIN_FINANCE_HITS`` terms from
-            ``_FINANCE_ALLOWLIST`` to be considered in-scope.  This prevents
-            generic greetings ("hi", "thanks") from reaching the LLM.
-
-        Word-boundary anchors (\\b) ensure that e.g. "programming" is not
-        matched by the stem "program" in "savings program".
+        Two-stage classifier for finance-related queries.
+        Stage A: Denylist check (hard blockers).
+        Stage B: Allowlist check (affirmative signal).
         """
         lower = query.lower()
 
-        # Stage A: immediate rejection on denylist hit.
         for blocked in OOT_DENYLIST:
             if re.search(rf'\b{re.escape(blocked)}\b', lower):
                 return False
 
-        # Stage B: require at least one finance keyword.
         hits = sum(
             1 for term in FINANCE_ALLOWLIST
             if re.search(rf'\b{re.escape(term)}\b', lower)
         )
         return hits >= MIN_FINANCE_HITS
 
-    # =========================================================================
-    # ②  RAG retrieval
-    # =========================================================================
-
+    # RAG retrieval
     @classmethod
     def _detect_timeframe(cls, query: str) -> tuple["date", str]:
         """
@@ -225,11 +198,10 @@ class FinancialAdvisorService:
             return cutoff, f"Last {n} month{'s' if n > 1 else ''}"
 
         cutoff = today - timedelta(days=60)
-        # Робимо гарний підпис, наприклад: "March - May 2026"
         start_month = cutoff.strftime("%B")
         end_month = today.strftime("%B %Y")
         period_label = f"Last 2 Months ({start_month} - {end_month})"
-        
+
         return cutoff, period_label
 
     @classmethod
@@ -244,8 +216,9 @@ class FinancialAdvisorService:
         )
 
         # --- 1. Агрегація в Python (замість SQL SUM) ---
-        agg_map = defaultdict(lambda: {"count": 0, "total": 0.0, "type": "Expense"})
-        
+        agg_map = defaultdict(
+            lambda: {"count": 0, "total": 0.0, "type": "Expense"})
+
         all_txns = list(base_qs)
         for tx in all_txns:
             cat_name = tx.category.decrypted_name
@@ -318,10 +291,7 @@ class FinancialAdvisorService:
 
         return result
 
-    # =========================================================================
-    # ⑤  LLM call
-    # =========================================================================
-
+    # LLM call
     @classmethod
     def _call_llm(cls, system_prompt: str, user_query: str) -> str:
         """
@@ -391,13 +361,9 @@ class FinancialAdvisorService:
             temperature=0.7,
             # 3000 visible tokens — covers the full structured response
             # (stats + analysis + observations + tactics) without risk of
-            # truncation.  Thinking is disabled so no tokens are silently
-            # consumed by reasoning traces.
+            # truncation.
             max_output_tokens=3000,
             safety_settings=safety_settings,
-            # Disable extended thinking: the prompt is already highly
-            # structured and thinking traces add latency without improving
-            # the quality of a data-grounded advisory response.
             thinking_config=types.ThinkingConfig(thinking_budget=0),
         )
 

@@ -57,7 +57,6 @@ MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     'csp.middleware.CSPMiddleware',
     'django.middleware.security.SecurityMiddleware',
-    'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -65,9 +64,7 @@ MIDDLEWARE = [
     'django_otp.middleware.OTPMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
-    # Custom logging middleware for security monitoring
     'financial_monitor.middleware.SecurityLoggingMiddleware',
-    # Brute-force protection
     'axes.middleware.AxesMiddleware',
 ]
 
@@ -196,9 +193,9 @@ SPECTACULAR_SETTINGS = {
 CORS_ALLOWED_ORIGINS = env.list(
     'CORS_ALLOWED_ORIGINS',
     default=[
-        'https://localhost:3000',  # React default port
+        'https://localhost:3000',
         'https://127.0.0.1:3000',
-        'https://localhost:8080',  # Alternative frontend port
+        'https://localhost:8080',
         'https://127.0.0.1:8080',
     ]
 )
@@ -291,15 +288,12 @@ AUTHENTICATION_BACKENDS = [
 # Site ID (required for django-allauth)
 SITE_ID = 1
 
-# Email Backend Configuration
-# For development, use console backend to see emails in terminal
-# For production, use SMTP backend with proper credentials
+# Email Settings
 EMAIL_BACKEND = env(
     'EMAIL_BACKEND',
     default='django.core.mail.backends.console.EmailBackend'
 )
 
-# Email Settings (for production, configure these in .env)
 EMAIL_HOST = env('EMAIL_HOST', default='smtp.gmail.com')
 EMAIL_PORT = env.int('EMAIL_PORT', default=587)
 EMAIL_USE_TLS = env.bool('EMAIL_USE_TLS', default=True)
@@ -309,52 +303,29 @@ DEFAULT_FROM_EMAIL = env('DEFAULT_FROM_EMAIL',
                          default='noreply@financialmonitor.com')
 
 # Google OAuth Configuration
-# Set these in your .env file:
-# GOOGLE_OAUTH_CLIENT_ID=your_google_client_id_here
-# GOOGLE_OAUTH_CLIENT_SECRET=your_google_client_secret_here (optional, for server-side)
 GOOGLE_OAUTH_CLIENT_ID = env('GOOGLE_OAUTH_CLIENT_ID', default='')
 GOOGLE_OAUTH_CLIENT_SECRET = env('GOOGLE_OAUTH_CLIENT_SECRET', default='')
 
-# =============================================================================
-# Twilio SMS Configuration (for SMS-based 2FA)
-# =============================================================================
-# To set up Twilio:
-# 1. Create an account at https://www.twilio.com/
-# 2. Get your Account SID and Auth Token from the dashboard
-# 3. Get or create a Twilio phone number
-# 4. Set these environment variables in your .env file:
-#    TWILIO_ACCOUNT_SID=your_account_sid
-#    TWILIO_AUTH_TOKEN=your_auth_token
-#    TWILIO_PHONE_NUMBER=+1234567890
+# Twilio SMS Configuration
 TWILIO_ACCOUNT_SID = env('TWILIO_ACCOUNT_SID', default='')
 TWILIO_AUTH_TOKEN = env('TWILIO_AUTH_TOKEN', default='')
 TWILIO_PHONE_NUMBER = env('TWILIO_PHONE_NUMBER', default='')
 
 
 # Django-Axes: Brute-Force Protection
-AXES_FAILURE_LIMIT = 5                   # Lock after 5 failed attempts
-AXES_COOLOFF_TIME = 1                    # Lock duration in hours
-AXES_LOCKOUT_PARAMETERS = ['ip_address', 'username']  # Lock per IP + username
-AXES_RESET_ON_SUCCESS = True             # Reset counter on successful login
+AXES_FAILURE_LIMIT = 5
+AXES_COOLOFF_TIME = 1
+AXES_LOCKOUT_PARAMETERS = ['ip_address', 'username']
+AXES_RESET_ON_SUCCESS = True
 AXES_ENABLED = True
+AXES_NEVER_DISABLE_LOOPBACK = False
+AXES_HANDLER = 'axes.handlers.database.AxesDatabaseHandler'
 
-# =============================================================================
-# Field-Level Encryption (Fernet / AES-128-CBC + HMAC-SHA256)
-# =============================================================================
-# Generate with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+# Field-Level Encryption
 FIELD_ENCRYPTION_KEY = env('FIELD_ENCRYPTION_KEY', default='')
 
-# =============================================================================
-# AI Financial Advisor (RAG pipeline)
-# =============================================================================
-# Gemini API key — required for the /api/analytics/advisor/ endpoint.
-# Generate at: https://aistudio.google.com/app/apikey
-# Set via environment variable: GOOGLE_API_KEY=AIza...
+# AI Financial Advisor
 GOOGLE_API_KEY = env('GOOGLE_API_KEY', default='')
-
-# LLM model used by FinancialAdvisorService.
-# "gemini-2.5-flash" offers the best cost/quality ratio for financial Q&A.
-# Override via: ADVISOR_LLM_MODEL=gemini-2.5-pro
 ADVISOR_LLM_MODEL = env('ADVISOR_LLM_MODEL', default='gemini-2.5-flash')
 
 # =============================================================================
@@ -372,11 +343,10 @@ LOGGING['loggers']['audit'] = {
     'propagate': False,
 }
 
-# Large transaction threshold — transactions above this trigger an audit entry
 LARGE_TRANSACTION_THRESHOLD = env.float(
     'LARGE_TRANSACTION_THRESHOLD', default=10000.00)
 
-# Оновлений формат налаштувань для django-csp 4.0+
+# Content Security Policy
 CONTENT_SECURITY_POLICY = {
     'DIRECTIVES': {
         'default-src': ("'self'",),

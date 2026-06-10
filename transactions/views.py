@@ -11,20 +11,13 @@ from rest_framework.decorators import api_view, permission_classes, throttle_cla
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.throttling import ScopedRateThrottle
 from django.db.models import Q
-from datetime import datetime
+from datetime import datetime, timedelta, date
 from .models import Category, Transaction, AdvisorConversation, AdvisorMessage
 from .serializers import (
     CategorySerializer, TransactionSerializer, TransactionListSerializer,
     AdvisorConversationSerializer, AdvisorConversationDetailSerializer,
     AdvisorMessageSerializer,
 )
-from .services import FinanceService, MLForecastService
-from rest_framework import status, generics
-from rest_framework.response import Response
-from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import IsAuthenticated
-from django.db.models import Sum, Q
-from .models import Transaction, Category
 from .services import (
     FinanceService, MLForecastService,
     AnomalyDetectionService, AutoCategorizationService,
@@ -33,11 +26,8 @@ from .services import (
 from .services.quotes_service import QuotesService
 from django.core.cache import cache
 from django.utils.timezone import now
-from rest_framework.response import Response
-from rest_framework import status
+from collections import defaultdict
 
-
-# ========== Category Views ==========
 
 class CategoryListCreateView(generics.ListCreateAPIView):
     """
@@ -87,8 +77,6 @@ class CategoryDetailView(generics.RetrieveUpdateDestroyAPIView):
             raise PermissionDenied("Cannot delete system categories.")
         instance.delete()
 
-
-# ========== Transaction Views ==========
 
 class TransactionListCreateView(generics.ListCreateAPIView):
     """
@@ -171,8 +159,6 @@ class TransactionDetailView(generics.RetrieveUpdateDestroyAPIView):
         return Transaction.objects.filter(user=self.request.user)
 
 
-# ========== Analytics Views ==========
-
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def dashboard_view(request):
@@ -219,47 +205,13 @@ def dashboard_view(request):
     return Response(summary, status=status.HTTP_200_OK)
 
 
-# @api_view(['GET'])
-# @permission_classes([IsAuthenticated])
-# @throttle_classes([ScopedRateThrottle])
-# def forecast_view(request):
-#     """
-#     Get ML-based expense forecast for the next month.
-
-#     GET /api/analytics/forecast/?months_back=12
-
-#     Returns: {
-#         "predicted_amount": 1250.50,
-#         "confidence_score": 0.85,
-#         "months_used": 8,
-#         "status": "success",
-#         "message": "Prediction based on 8 months of data"
-#     }
-#     """
-#     # Get optional parameter
-#     months_back = request.query_params.get('months_back', 12)
-#     months_back = int(months_back) if months_back else 12
-
-#     # Ensure valid range
-#     months_back = max(6, min(months_back, 24))  # Between 6 and 24 months
-
-#     # Get prediction
-#     prediction = MLForecastService.predict_next_month_expense(
-#         request.user, months_back
-#     )
-
-#     return Response(prediction, status=status.HTTP_200_OK)
-
-
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def forecast_view(request):
     try:
-        # 1. Отримуємо транзакції замість виконання агрегації в БД
         income_txs = Transaction.objects.filter(
             user=request.user, category__type='Income'
         )
-        # Підсумовуємо в Python, використовуючи decrypted_amount
         income = sum(tx.decrypted_amount for tx in income_txs)
 
         expense_txs = Transaction.objects.filter(
@@ -269,54 +221,12 @@ def forecast_view(request):
 
         current_balance = float(income - expenses)
 
-        # 2. Виклик сервісу аналітики
         analysis = MLForecastService.get_comprehensive_analysis(
             request.user, current_balance)
 
         return Response(analysis, status=status.HTTP_200_OK)
     except Exception as e:
         return Response({"status": "error", "message": str(e)}, status=500)
-# transactions/views.py
-
-
-@api_view(['GET'])
-@permission_classes([IsAuthenticated])
-def dashboard_view(request):
-    """
-    Отримує дані для дашборду: підсумки, баланс та розподіл за категоріями.
-    """
-    try:
-        from datetime import date
-
-        # 1. Отримуємо параметри з запиту або ставимо поточні за замовчуванням
-        year = request.query_params.get('year')
-        month = request.query_params.get('month')
-
-        today = date.today()
-        target_year = int(year) if year else today.year
-        target_month = int(month) if month else today.month
-
-        # 2. ВИПРАВЛЕННЯ: Передаємо всі 3 обов'язкові аргументи
-        summary = FinanceService.get_dashboard_summary(
-            request.user,
-            target_month,
-            target_year
-        )
-
-        # 3. Додаємо розподіл категорій (якщо сервіс його не включив)
-        category_distribution = FinanceService.get_category_distribution(
-            request.user, target_month, target_year
-        )
-        summary['category_distribution'] = category_distribution
-
-        return Response(summary, status=status.HTTP_200_OK)
-
-    except Exception as e:
-        print(f"Dashboard Error: {str(e)}")
-        return Response(
-            {"status": "error", "message": "Не вдалося отримати дані дашборду"},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
 
 
 @api_view(['GET'])
@@ -355,8 +265,6 @@ def balance_view(request):
     }, status=status.HTTP_200_OK)
 
 
-# transactions/views.py
-
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def trend_view(request):
@@ -367,14 +275,12 @@ def trend_view(request):
     end_date = date.today()
     start_date = end_date - timedelta(days=months_back * 31)
 
-    # Отримуємо транзакції без агрегації в БД
     transactions = Transaction.objects.filter(
         user=request.user,
         date__gte=start_date,
         date__lte=end_date
     ).select_related('category')
 
-    # Групуємо по місяцях у Python[cite: 6]
     monthly_data = defaultdict(lambda: {'income': 0.0, 'expenses': 0.0})
 
     for tx in transactions:
@@ -506,8 +412,6 @@ def ai_insights_view(request):
     }, status=status.HTTP_200_OK)
 
 
-# ========== New ML Analytics Views ==========
-
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def anomaly_detection_view(request):
@@ -627,7 +531,6 @@ def financial_advisor_view(request):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    # ── 1. Перевірка денного ліміту (7 запитів) ──────────────────────────────
     user_id = request.user.id
     today = now().date()
     limit_key = f"adv_limit_{user_id}_{today}"
@@ -643,7 +546,6 @@ def financial_advisor_view(request):
             "conversation_id": request.data.get("conversation_id")
         }, status=status.HTTP_200_OK)
 
-    # ── 2. Пошук або створення треду бесіди ──────────────────────────────────
     conversation_id = request.data.get("conversation_id")
     conversation = None
 
@@ -658,7 +560,6 @@ def financial_advisor_view(request):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-    # ── 3. Виклик RAG сервісу ────────────────────────────────────────────────
     lookback_days: int = int(request.data.get("lookback_days", 60))
     result = FinancialAdvisorService.get_advice(
         request.user, query, lookback_days=lookback_days

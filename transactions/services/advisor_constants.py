@@ -25,8 +25,6 @@ FINANCE_ALLOWLIST: frozenset[str] = frozenset({
 })
 
 # Out-of-topic terms — a single hit causes immediate rejection.
-# Defence-in-depth: even if a finance keyword is injected alongside an OOT
-# keyword ("tell me about politics AND my budget"), the query is rejected.
 OOT_DENYLIST: frozenset[str] = frozenset({
     "politic", "election", "president", "government", "war", "military",
     "religion", "coding", "programming", "javascript", "algorithm",
